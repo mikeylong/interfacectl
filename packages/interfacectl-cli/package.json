@@ -9,7 +9,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build:deps": "pnpm --filter @surfaces/interfacectl-validator run build",
-    "build": "pnpm run clean && tsc -p tsconfig.json",
+    "build": "pnpm run build:deps && pnpm run clean && tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "validate": "node dist/index.js validate --root test/fixtures/minimal-project --contract test/fixtures/minimal-project/contracts/ui.contract.json",
     "pretest": "pnpm run build:deps && pnpm run build",
