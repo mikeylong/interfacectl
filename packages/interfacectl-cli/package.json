@@ -13,7 +13,7 @@
     "clean": "rm -rf dist",
     "validate": "node dist/index.js validate --root test/fixtures/minimal-project --contract test/fixtures/minimal-project/contracts/ui.contract.json",
     "pretest": "pnpm run build:deps && pnpm run build",
-    "test": "node --test test/**/*.test.mjs"
+    "test": "node --test test/index.mjs"
   },
   "dependencies": {
     "@surfaces/interfacectl-validator": "^0.1.0",

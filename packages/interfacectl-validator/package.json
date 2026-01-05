@@ -19,7 +19,7 @@
     "build": "pnpm run clean && tsc -p tsconfig.json && node ./scripts/copy-schema.mjs",
     "clean": "rm -rf dist",
     "pretest": "pnpm run build",
-    "test": "node --test test/**/*.test.mjs"
+    "test": "node --test test/index.mjs"
   },
   "dependencies": {
     "ajv": "^8.17.1",
