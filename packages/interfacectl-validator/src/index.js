@@ -1,9 +1,18 @@
-import AjvModule from "ajv";
+import AjvModule from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+import bundledSchema from "./schema/surfaces.web.contract.schema.json" with {
+    type: "json"
+};
+const frozenBundledSchema = Object.freeze(bundledSchema);
+export function getBundledContractSchema() {
+    return frozenBundledSchema;
+}
 export function validateContractStructure(contractData, schema) {
     const ajv = new AjvModule({
         allErrors: true,
         strict: false,
     });
+    addFormats(ajv);
     const validate = ajv.compile(schema);
     const valid = validate(contractData);
     if (!valid) {
@@ -40,7 +49,10 @@ export function evaluateSurfaceCompliance(contract, descriptor) {
                 surfaceId: descriptor.surfaceId,
                 type: "missing-section",
                 message: `Required section "${requiredSection}" is missing for surface "${descriptor.surfaceId}".`,
-                details: { sectionId: requiredSection },
+                details: {
+                    sectionId: requiredSection,
+                    requiredSections: surface.requiredSections,
+                },
             });
         }
     }
@@ -61,7 +73,11 @@ export function evaluateSurfaceCompliance(contract, descriptor) {
                 surfaceId: descriptor.surfaceId,
                 type: "font-not-allowed",
                 message: `Font "${font.value}" is not allowed for surface "${descriptor.surfaceId}".`,
-                details: { font: font.value, source: font.source },
+                details: {
+                    font: font.value,
+                    source: font.source,
+                    allowedFonts: [...allowedFonts],
+                },
             });
         }
     }
@@ -71,7 +87,10 @@ export function evaluateSurfaceCompliance(contract, descriptor) {
             surfaceId: descriptor.surfaceId,
             type: "layout-width-undetermined",
             message: `Max content width is not provided for surface "${descriptor.surfaceId}".`,
-            details: { expectedMaxWidth: surface.layout.maxContentWidth },
+            details: {
+                expectedMaxWidth: surface.layout.maxContentWidth,
+                source: descriptor.layout.source,
+            },
         });
     }
     else if (reportedWidth > surface.layout.maxContentWidth) {
@@ -85,6 +104,28 @@ export function evaluateSurfaceCompliance(contract, descriptor) {
                 source: descriptor.layout.source,
             },
         });
+    }
+    const configuredContainers = surface.layout.requiredContainers;
+    const requiredContainers = configuredContainers === undefined
+        ? ["contract-container"]
+        : configuredContainers;
+    if (requiredContainers.length > 0) {
+        const descriptorContainers = new Set(descriptor.layout.containers ?? []);
+        const missingContainers = requiredContainers.filter((container) => !descriptorContainers.has(container));
+        if (missingContainers.length > 0) {
+            violations.push({
+                surfaceId: descriptor.surfaceId,
+                type: "layout-container-missing",
+                message: `Surface "${descriptor.surfaceId}" is missing required container(s): ${missingContainers
+                    .map((container) => `"${container}"`)
+                    .join(", ")}.`,
+                details: {
+                    requiredContainers,
+                    missingContainers,
+                    containerSources: descriptor.layout.containerSources ?? [],
+                },
+            });
+        }
     }
     const allowedDurations = new Set(contract.constraints.motion.allowedDurationsMs);
     const allowedTimingFunctions = new Set(contract.constraints.motion.allowedTimingFunctions);

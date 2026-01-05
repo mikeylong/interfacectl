@@ -7,6 +7,7 @@ export interface ContractSurface {
     allowedFonts: string[];
     layout: {
         maxContentWidth: number;
+        requiredContainers?: string[];
     };
 }
 export interface ContractSection {
@@ -44,6 +45,7 @@ export interface SurfaceMotionDescriptor {
 export interface SurfaceLayoutDescriptor {
     maxContentWidth?: number | null;
     containers?: string[];
+    containerSources?: string[];
     source?: string;
 }
 export interface SurfaceDescriptor {
@@ -53,7 +55,7 @@ export interface SurfaceDescriptor {
     layout: SurfaceLayoutDescriptor;
     motion: SurfaceMotionDescriptor[];
 }
-export type DriftViolationType = "unknown-surface" | "missing-section" | "unknown-section" | "font-not-allowed" | "layout-width-exceeded" | "layout-width-undetermined" | "motion-duration-not-allowed" | "motion-timing-not-allowed" | "descriptor-missing" | "descriptor-unused";
+export type DriftViolationType = "unknown-surface" | "missing-section" | "unknown-section" | "font-not-allowed" | "layout-width-exceeded" | "layout-width-undetermined" | "layout-container-missing" | "motion-duration-not-allowed" | "motion-timing-not-allowed" | "descriptor-missing" | "descriptor-unused";
 export interface DriftViolation {
     surfaceId: string;
     type: DriftViolationType;

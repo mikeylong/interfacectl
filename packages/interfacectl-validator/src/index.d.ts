@@ -1,4 +1,5 @@
 import { InterfaceContract, SurfaceDescriptor, SurfaceReport, ValidationSummary } from "./types.js";
+export declare function getBundledContractSchema(): object;
 export interface ContractStructureValidation {
     ok: boolean;
     errors: string[];
