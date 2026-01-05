@@ -1,0 +1,19 @@
+:root {
+  --contract-max-width: 960px;
+  --contract-motion-duration: 120ms;
+  --contract-motion-timing: linear;
+}
+
+.fixture-body {
+  --font-demo: "Demo Sans";
+  font-family: var(--font-demo), "Demo Sans", sans-serif;
+}
+
+.contract-container {
+  max-width: var(--contract-max-width);
+  transition: opacity var(--contract-motion-duration)
+    var(--contract-motion-timing);
+  animation-duration: var(--contract-motion-duration);
+  animation-timing-function: var(--contract-motion-timing);
+}
+

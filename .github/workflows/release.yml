@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.26.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.x
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+      - run: pnpm test
+      - name: Publish packages
+        if: ${{ secrets.NPM_TOKEN != '' }}
+        run: pnpm changeset publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      - name: Publish skipped
+        if: ${{ secrets.NPM_TOKEN == '' }}
+        run: echo "NPM_TOKEN not configured; skipping publish."
+

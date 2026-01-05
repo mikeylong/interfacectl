@@ -1,0 +1,25 @@
+{
+  "name": "interfacectl-monorepo",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm -r run build",
+    "clean": "pnpm -r run clean",
+    "test": "pnpm -r run test",
+    "changeset": "changeset",
+    "release": "changeset publish"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.8",
+    "@types/node": "^20.19.27",
+    "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "overrides": {
+      "@surfaces/interfacectl-validator": "link:packages/interfacectl-validator"
+    }
+  },
+  "packageManager": "pnpm@10.26.2"
+}
+

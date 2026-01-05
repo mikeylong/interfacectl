@@ -1,0 +1,25 @@
+{
+  "name": "@surfaces/interfacectl-validator",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && tsc -p tsconfig.json && node ./scripts/copy-schema.mjs",
+    "clean": "rm -rf dist",
+    "pretest": "pnpm run build",
+    "test": "node --test test/**/*.test.mjs"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.9",
+    "typescript": "^5.6.3"
+  }
+}
+
