@@ -12,7 +12,6 @@
     "build": "pnpm run build:deps && pnpm run clean && tsc -p tsconfig.json",
     "clean": "rm -rf dist",
     "validate": "node dist/index.js validate --root test/fixtures/minimal-project --contract test/fixtures/minimal-project/contracts/ui.contract.json",
-    "pretest": "pnpm run build:deps && pnpm run build",
     "test": "node --test test/index.mjs"
   },
   "dependencies": {
@@ -26,4 +25,3 @@
     "typescript": "^5.6.3"
   }
 }
-

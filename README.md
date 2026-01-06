@@ -56,6 +56,22 @@ Key options:
 - run: pnpm exec interfacectl validate --root . --contract contracts/ui.contract.json --format json
 ```
 
+## Development
+
+### Build and Test Contract
+
+- Build produces `dist/` directories in each package
+- Tests assume `dist/` exists and run against built artifacts
+- Consumers depend only on the CLI interface, not build internals
+- The tarball-install test validates CLI works from a packaged install
+
+Run locally:
+```bash
+pnpm install
+pnpm run build
+pnpm run test
+```
+
 ## Releasing
 
 1. Run `pnpm changeset` and choose affected packages.

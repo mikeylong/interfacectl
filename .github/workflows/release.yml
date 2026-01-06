@@ -1,5 +1,8 @@
 name: Release
 
+permissions:
+  contents: read
+
 on:
   workflow_dispatch:
   push:
@@ -18,9 +21,13 @@ jobs:
         with:
           node-version: 20.x
           cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test
+          cache-dependency-path: pnpm-lock.yaml
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Build packages
+        run: pnpm run build
+      - name: Run tests
+        run: pnpm run test
       - name: Publish packages
         if: ${{ secrets.NPM_TOKEN != '' }}
         run: pnpm changeset publish
@@ -29,4 +36,3 @@ jobs:
       - name: Publish skipped
         if: ${{ secrets.NPM_TOKEN == '' }}
         run: echo "NPM_TOKEN not configured; skipping publish."
-
