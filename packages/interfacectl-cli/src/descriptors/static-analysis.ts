@@ -597,10 +597,10 @@ function parseColorValue(value: string): string[] {
   }
   
   for (const part of parts) {
-    // CSS variable
+    // CSS variable - extract all var() calls from color declarations
     if (part.startsWith("var(")) {
       const varMatch = part.match(/var\(([^)]+)\)/);
-      if (varMatch && varMatch[1].startsWith("--color-")) {
+      if (varMatch) {
         colors.push(`var(${varMatch[1]})`);
       }
       continue;
