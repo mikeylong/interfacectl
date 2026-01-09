@@ -526,6 +526,24 @@ function collectColorsFromContent(
 
   // Extract direct color declarations
   while ((match = COLOR_DECL_REGEX.exec(content)) !== null) {
+    // Skip CSS variable definitions (--variable-name: value;)
+    // Check if the match is part of a CSS variable definition by looking for -- before it
+    const matchIndex = match.index;
+    let isCssVariable = false;
+    // Look backwards from the match to find if it's part of a --variable definition
+    for (let i = matchIndex - 1; i >= 0 && i >= matchIndex - 50; i--) {
+      if (content[i] === '\n' || content[i] === ';') {
+        break; // Found start of line or previous declaration
+      }
+      if (content[i] === '-' && i > 0 && content[i - 1] === '-') {
+        isCssVariable = true; // Found -- before the match
+        break;
+      }
+    }
+    if (isCssVariable) {
+      continue;
+    }
+    
     const colorValue = match[1].trim();
     if (!colorValue) {
       continue;
@@ -554,8 +572,29 @@ function parseColorValue(value: string): string[] {
     return colors;
   }
 
-  // Handle comma-separated values (e.g., in rgba or multiple colors)
-  const parts = trimmed.split(",").map((p) => p.trim());
+  // Handle comma-separated values, but preserve function calls like rgb(), rgba(), hsl()
+  // Split by comma, but don't split inside function parentheses
+  const parts: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (let i = 0; i < trimmed.length; i++) {
+    const char = trimmed[i];
+    if (char === "(") {
+      depth++;
+      current += char;
+    } else if (char === ")") {
+      depth--;
+      current += char;
+    } else if (char === "," && depth === 0) {
+      parts.push(current.trim());
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) {
+    parts.push(current.trim());
+  }
   
   for (const part of parts) {
     // CSS variable
