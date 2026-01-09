@@ -15,6 +15,11 @@
         "Demo Sans",
         "sans-serif"
       ],
+      "allowedColors": [
+        "var(--color-primary)",
+        "#ffffff",
+        "#000000"
+      ],
       "layout": {
         "maxContentWidth": 960
       }

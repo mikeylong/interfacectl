@@ -5,6 +5,7 @@ import {
   type InterfaceContract,
   type SurfaceDescriptor,
   type SurfaceFontDescriptor,
+  type SurfaceColorDescriptor,
   type SurfaceLayoutDescriptor,
   type SurfaceMotionDescriptor,
   type SurfaceSectionDescriptor,
@@ -27,6 +28,9 @@ const COMMON_GLOBBY_IGNORES = [
 
 const FONT_VAR_REGEX = /var\((--font-[a-z0-9-]+)\)/gi;
 const FONT_FAMILY_REGEX = /font-family\s*:\s*([^;]+);/gi;
+const COLOR_VAR_REGEX = /var\((--color-[a-z0-9-]+)\)/gi;
+const COLOR_DECL_REGEX =
+  /(?:color|background-color|background|border-color|border-top-color|border-right-color|border-bottom-color|border-left-color|outline-color|text-decoration-color|caret-color|column-rule-color)\s*:\s*([^;]+);/gi;
 const MAX_WIDTH_VAR_REGEX =
   /--contract-max-width\s*:\s*([0-9.]+)\s*(px|rem|em)/i;
 const MOTION_DURATION_VAR_REGEX =
@@ -180,6 +184,25 @@ async function extractSurfaceDescriptor(
     });
   }
 
+  const colors = await extractColors(
+    surfaceRoot,
+    layoutCssFiles,
+    sectionFiles,
+    workspaceRoot,
+    fileContentCache,
+  );
+  if (colors.length === 0) {
+    const globalsPath = path.join(surfaceRoot, "app", "globals.css");
+    warnings.push({
+      surfaceId,
+      code: "colors.none-detected",
+      message: `No colors detected for surface "${surfaceId}". Verify color variables or CSS color declarations.`,
+      location: (await pathExists(globalsPath))
+        ? path.relative(workspaceRoot, globalsPath)
+        : undefined,
+    });
+  }
+
   const motion = await extractMotion(layoutCssFiles, workspaceRoot, fileContentCache);
   if (motion.length === 0) {
     warnings.push({
@@ -193,6 +216,7 @@ async function extractSurfaceDescriptor(
     surfaceId,
     sections,
     fonts,
+    colors,
     layout,
     motion,
   };
@@ -269,6 +293,58 @@ async function extractFonts(
   }
 
   return [...fontValues.values()].sort((a, b) =>
+    a.value.localeCompare(b.value),
+  );
+}
+
+async function extractColors(
+  surfaceRoot: string,
+  cssFilePaths: string[],
+  sectionFiles: string[],
+  workspaceRoot: string,
+  fileContentCache: Map<string, string>,
+): Promise<SurfaceColorDescriptor[]> {
+  const colorValues = new Map<string, SurfaceColorDescriptor>();
+
+  const layoutPath = path.join(surfaceRoot, "app", "layout.tsx");
+  if (await pathExists(layoutPath)) {
+    const layoutContent = await readFileCached(layoutPath, fileContentCache);
+    collectColorsFromContent(
+      layoutContent,
+      path.relative(workspaceRoot, layoutPath),
+      colorValues,
+    );
+  }
+
+  const globalsPath = path.join(surfaceRoot, "app", "globals.css");
+  if (await pathExists(globalsPath)) {
+    const globalsContent = await readFileCached(globalsPath, fileContentCache);
+    collectColorsFromContent(
+      globalsContent,
+      path.relative(workspaceRoot, globalsPath),
+      colorValues,
+    );
+  }
+
+  for (const cssPath of cssFilePaths) {
+    const cssContent = await readFileCached(cssPath, fileContentCache);
+    collectColorsFromContent(
+      cssContent,
+      path.relative(workspaceRoot, cssPath),
+      colorValues,
+    );
+  }
+
+  for (const sectionFile of sectionFiles) {
+    const content = await readFileCached(sectionFile, fileContentCache);
+    collectColorsFromContent(
+      content,
+      path.relative(workspaceRoot, sectionFile),
+      colorValues,
+    );
+  }
+
+  return [...colorValues.values()].sort((a, b) =>
     a.value.localeCompare(b.value),
   );
 }
@@ -431,6 +507,130 @@ function collectFontsFromContent(
       }
     }
   }
+}
+
+function collectColorsFromContent(
+  content: string,
+  source: string,
+  colorValues: Map<string, SurfaceColorDescriptor>,
+) {
+  let match: RegExpExecArray | null;
+  
+  // Extract CSS color variables
+  while ((match = COLOR_VAR_REGEX.exec(content)) !== null) {
+    const variable = `var(${match[1]})`;
+    if (!colorValues.has(variable)) {
+      colorValues.set(variable, { value: variable, source });
+    }
+  }
+
+  // Extract direct color declarations
+  while ((match = COLOR_DECL_REGEX.exec(content)) !== null) {
+    const colorValue = match[1].trim();
+    if (!colorValue) {
+      continue;
+    }
+
+    // Parse color value - handle multiple values (e.g., in gradients)
+    const colors = parseColorValue(colorValue);
+    for (const color of colors) {
+      if (color && !colorValues.has(color)) {
+        colorValues.set(color, { value: color, source });
+      }
+    }
+  }
+}
+
+function parseColorValue(value: string): string[] {
+  const colors: string[] = [];
+  const trimmed = value.trim();
+
+  // Skip if it's a gradient or other complex value
+  if (
+    trimmed.includes("gradient") ||
+    trimmed.includes("url(") ||
+    trimmed.includes("calc(")
+  ) {
+    return colors;
+  }
+
+  // Handle comma-separated values (e.g., in rgba or multiple colors)
+  const parts = trimmed.split(",").map((p) => p.trim());
+  
+  for (const part of parts) {
+    // CSS variable
+    if (part.startsWith("var(")) {
+      const varMatch = part.match(/var\(([^)]+)\)/);
+      if (varMatch && varMatch[1].startsWith("--color-")) {
+        colors.push(`var(${varMatch[1]})`);
+      }
+      continue;
+    }
+
+    // Hex colors (#fff, #ffffff)
+    const hexMatch = part.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hexMatch) {
+      colors.push(part.toLowerCase());
+      continue;
+    }
+
+    // rgb/rgba colors
+    const rgbMatch = part.match(/^(rgba?)\s*\(\s*([^)]+)\s*\)$/i);
+    if (rgbMatch) {
+      colors.push(part.toLowerCase());
+      continue;
+    }
+
+    // hsl/hsla colors
+    const hslMatch = part.match(/^(hsla?)\s*\(\s*([^)]+)\s*\)$/i);
+    if (hslMatch) {
+      colors.push(part.toLowerCase());
+      continue;
+    }
+
+    // Named colors (case-insensitive)
+    const namedColorMatch = part.match(/^[a-z]+$/i);
+    if (namedColorMatch) {
+      // Common CSS named colors
+      const namedColor = part.toLowerCase();
+      const commonColors = [
+        "transparent",
+        "currentcolor",
+        "inherit",
+        "initial",
+        "unset",
+        "revert",
+        "black",
+        "white",
+        "red",
+        "green",
+        "blue",
+        "yellow",
+        "orange",
+        "purple",
+        "pink",
+        "brown",
+        "gray",
+        "grey",
+        "cyan",
+        "magenta",
+        "lime",
+        "navy",
+        "olive",
+        "teal",
+        "aqua",
+        "maroon",
+        "silver",
+        "gold",
+      ];
+      // Only accept known CSS named colors, not arbitrary words
+      if (commonColors.includes(namedColor)) {
+        colors.push(namedColor);
+      }
+    }
+  }
+
+  return colors;
 }
 
 function collectContainersFromContent(content: string): Set<string> {

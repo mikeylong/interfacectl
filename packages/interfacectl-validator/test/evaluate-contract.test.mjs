@@ -27,24 +27,26 @@ const baseContract = {
 test("defaults to contract-container when requiredContainers omitted", () => {
   const contract = {
     ...baseContract,
-    surfaces: [
-      {
-        id: "surface-a",
-        displayName: "Surface A",
-        type: "web",
-        requiredSections: ["main.hero"],
-        allowedFonts: ["var(--font-a)"],
-        layout: {
-          maxContentWidth: 960,
+      surfaces: [
+        {
+          id: "surface-a",
+          displayName: "Surface A",
+          type: "web",
+          requiredSections: ["main.hero"],
+          allowedFonts: ["var(--font-a)"],
+          allowedColors: ["var(--color-primary)"],
+          layout: {
+            maxContentWidth: 960,
+          },
         },
-      },
-    ],
+      ],
   };
 
   const descriptor = {
     surfaceId: "surface-a",
     sections: [{ id: "main.hero" }],
     fonts: [{ value: "var(--font-a)" }],
+    colors: [{ value: "var(--color-primary)" }],
     layout: {
       maxContentWidth: 920,
       containers: ["contract-container"],
@@ -66,25 +68,27 @@ test("defaults to contract-container when requiredContainers omitted", () => {
 test("reports missing custom required containers", () => {
   const contract = {
     ...baseContract,
-    surfaces: [
-      {
-        id: "surface-b",
-        displayName: "Surface B",
-        type: "web",
-        requiredSections: ["main.hero"],
-        allowedFonts: ["var(--font-b)"],
-        layout: {
-          maxContentWidth: 960,
-          requiredContainers: ["primary-shell", "contract-container"],
+      surfaces: [
+        {
+          id: "surface-b",
+          displayName: "Surface B",
+          type: "web",
+          requiredSections: ["main.hero"],
+          allowedFonts: ["var(--font-b)"],
+          allowedColors: ["var(--color-b)"],
+          layout: {
+            maxContentWidth: 960,
+            requiredContainers: ["primary-shell", "contract-container"],
+          },
         },
-      },
-    ],
+      ],
   };
 
   const descriptor = {
     surfaceId: "surface-b",
     sections: [{ id: "main.hero" }],
     fonts: [{ value: "var(--font-b)" }],
+    colors: [{ value: "var(--color-b)" }],
     layout: {
       maxContentWidth: 960,
       containers: ["primary-shell"],
@@ -110,25 +114,27 @@ test("reports missing custom required containers", () => {
 test("captures layout width and motion violations", () => {
   const contract = {
     ...baseContract,
-    surfaces: [
-      {
-        id: "surface-c",
-        displayName: "Surface C",
-        type: "web",
-        requiredSections: ["main.hero"],
-        allowedFonts: ["var(--font-c)"],
-        layout: {
-          maxContentWidth: 720,
-          requiredContainers: [],
+      surfaces: [
+        {
+          id: "surface-c",
+          displayName: "Surface C",
+          type: "web",
+          requiredSections: ["main.hero"],
+          allowedFonts: ["var(--font-c)"],
+          allowedColors: ["var(--color-c)"],
+          layout: {
+            maxContentWidth: 720,
+            requiredContainers: [],
+          },
         },
-      },
-    ],
+      ],
   };
 
   const descriptor = {
     surfaceId: "surface-c",
     sections: [{ id: "main.hero" }],
     fonts: [{ value: "var(--font-c)" }],
+    colors: [{ value: "var(--color-disallowed)" }],
     layout: {
       maxContentWidth: 960,
       containers: [],
@@ -146,8 +152,12 @@ test("captures layout width and motion violations", () => {
   const violationTypes = report.violations.map((violation) => violation.type);
   assert.deepEqual(
     violationTypes.sort(),
-    ["layout-width-exceeded", "motion-duration-not-allowed", "motion-timing-not-allowed"].sort(),
+    ["color-not-allowed", "layout-width-exceeded", "motion-duration-not-allowed", "motion-timing-not-allowed"].sort(),
   );
+  
+  const colorViolation = report.violations.find((v) => v.type === "color-not-allowed");
+  assert.ok(colorViolation, "should have color violation");
+  assert.equal(colorViolation.details?.color, "var(--color-disallowed)");
 });
 
 

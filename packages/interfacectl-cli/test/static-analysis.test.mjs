@@ -11,7 +11,7 @@ import {
 
 import { collectSurfaceDescriptors } from "../dist/descriptors/static-analysis.js";
 
-test("collectSurfaceDescriptors captures sections, containers, fonts, and motion", async () => {
+test("collectSurfaceDescriptors captures sections, containers, fonts, colors, and motion", async () => {
   const tempRoot = await mkdtemp(path.join(os.tmpdir(), "interfacectl-static-"));
   const surfaceId = "demo-surface";
   const surfaceRoot = path.join(tempRoot, "apps", surfaceId);
@@ -62,14 +62,23 @@ test("collectSurfaceDescriptors captures sections, containers, fonts, and motion
           --contract-max-width: 960px;
           --contract-motion-duration: 120ms;
           --contract-motion-timing: ease-in;
+          --color-primary: #0066cc;
+          --color-background: #ffffff;
         }
 
         .contract-container {
           transition: opacity var(--contract-motion-duration) ease-in;
+          background-color: var(--color-background);
         }
 
         .demo-body {
           font-family: var(--font-demo), "Demo Sans", monospace;
+          color: var(--color-primary);
+        }
+
+        .demo-text {
+          color: #333333;
+          border-color: rgb(200, 200, 200);
         }
       `,
       "utf-8",
@@ -108,6 +117,12 @@ test("collectSurfaceDescriptors captures sections, containers, fonts, and motion
           type: "web",
           requiredSections: ["main.hero"],
           allowedFonts: ["var(--font-demo)", "Demo Sans", "monospace"],
+          allowedColors: [
+            "var(--color-primary)",
+            "var(--color-background)",
+            "#333333",
+            "rgb(200, 200, 200)",
+          ],
           layout: {
             maxContentWidth: 960,
             requiredContainers: ["primary-shell"],
@@ -149,6 +164,14 @@ test("collectSurfaceDescriptors captures sections, containers, fonts, and motion
 
     const fontValues = descriptor.fonts.map((font) => font.value).sort();
     assert.deepEqual(fontValues, ["Demo Sans", "monospace", "var(--font-demo)"]);
+
+    const colorValues = descriptor.colors.map((color) => color.value).sort();
+    assert.deepEqual(colorValues, [
+      "#333333",
+      "rgb(200, 200, 200)",
+      "var(--color-background)",
+      "var(--color-primary)",
+    ]);
 
     assert.ok(descriptor.motion.length > 0, "expected motion descriptors");
     const durations = descriptor.motion.map((motion) => motion.durationMs);
