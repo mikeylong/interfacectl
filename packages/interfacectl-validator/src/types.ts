@@ -6,6 +6,7 @@ export interface ContractSurface {
   type: SurfaceType;
   requiredSections: string[];
   allowedFonts: string[];
+  allowedColors: string[];
   layout: {
     maxContentWidth: number;
     requiredContainers?: string[];
@@ -44,6 +45,11 @@ export interface SurfaceFontDescriptor {
   source?: string;
 }
 
+export interface SurfaceColorDescriptor {
+  value: string;
+  source?: string;
+}
+
 export interface SurfaceMotionDescriptor {
   durationMs: number;
   timingFunction: string;
@@ -61,6 +67,7 @@ export interface SurfaceDescriptor {
   surfaceId: string;
   sections: SurfaceSectionDescriptor[];
   fonts: SurfaceFontDescriptor[];
+  colors: SurfaceColorDescriptor[];
   layout: SurfaceLayoutDescriptor;
   motion: SurfaceMotionDescriptor[];
 }
@@ -70,6 +77,7 @@ export type DriftViolationType =
   | "missing-section"
   | "unknown-section"
   | "font-not-allowed"
+  | "color-not-allowed"
   | "layout-width-exceeded"
   | "layout-width-undetermined"
   | "layout-container-missing"

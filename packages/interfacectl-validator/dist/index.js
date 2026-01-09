@@ -81,6 +81,21 @@ export function evaluateSurfaceCompliance(contract, descriptor) {
             });
         }
     }
+    const allowedColors = new Set(surface.allowedColors);
+    for (const color of descriptor.colors) {
+        if (!allowedColors.has(color.value)) {
+            violations.push({
+                surfaceId: descriptor.surfaceId,
+                type: "color-not-allowed",
+                message: `Color "${color.value}" is not allowed for surface "${descriptor.surfaceId}".`,
+                details: {
+                    color: color.value,
+                    source: color.source,
+                    allowedColors: [...allowedColors],
+                },
+            });
+        }
+    }
     const reportedWidth = descriptor.layout.maxContentWidth;
     if (reportedWidth === null || reportedWidth === undefined) {
         violations.push({

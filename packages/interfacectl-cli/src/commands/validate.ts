@@ -360,6 +360,7 @@ function mapViolationsToFindings(
     "missing-section": "section.missing",
     "unknown-section": "section.unexpected",
     "font-not-allowed": "font.disallowed",
+    "color-not-allowed": "color.disallowed",
     "layout-width-exceeded": "layout.width-exceeded",
     "layout-width-undetermined": "layout.width-undetermined",
     "layout-container-missing": "layout.container-missing",
@@ -398,6 +399,13 @@ function mapViolationsToFindings(
             ? details.allowedFonts
             : undefined;
           finding.found = details.font;
+          break;
+        }
+        case "color-not-allowed": {
+          finding.expected = Array.isArray(details.allowedColors)
+            ? details.allowedColors
+            : undefined;
+          finding.found = details.color;
           break;
         }
         case "layout-width-undetermined": {
