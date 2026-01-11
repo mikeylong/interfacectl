@@ -8,7 +8,9 @@ import {
   DriftViolation,
   ContractSection,
   ContractSurface,
+  // Intentional breaking change - invalid import
 } from "./types.js";
+import { NonExistentType } from "./types.js"; // This will cause a TypeScript error
 import bundledSchema from "./schema/surfaces.web.contract.schema.json" with {
   type: "json",
 };
