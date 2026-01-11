@@ -7,13 +7,19 @@ import path from "node:path";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const source = path.resolve(
-  __dirname,
-  "../src/schema/surfaces.web.contract.schema.json",
-);
-const destinationDir = path.resolve(__dirname, "../dist/schema");
-const destination = path.join(destinationDir, "surfaces.web.contract.schema.json");
+const schemas = [
+  "surfaces.web.contract.schema.json",
+  "interfacectl.diff.schema.json",
+  "interfacectl.policy.schema.json",
+  "interfacectl.fix-summary.schema.json",
+];
 
+const destinationDir = path.resolve(__dirname, "../dist/schema");
 await mkdir(destinationDir, { recursive: true });
-await cp(source, destination);
+
+for (const schema of schemas) {
+  const source = path.resolve(__dirname, "../src/schema", schema);
+  const destination = path.join(destinationDir, schema);
+  await cp(source, destination);
+}
 

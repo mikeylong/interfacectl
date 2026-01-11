@@ -2,6 +2,8 @@
 
 import { Command } from "commander";
 import { runValidateCommand } from "./commands/validate.js";
+import { runDiffCommand } from "./commands/diff.js";
+import { runEnforceCommand } from "./commands/enforce.js";
 import pkg from "../package.json" with { type: "json" };
 
 const program = new Command();
@@ -84,6 +86,145 @@ program
       outputPath: options.out,
       configPath: requestedConfig,
       configProvided: Boolean(requestedConfig),
+    });
+
+    process.exitCode = exitCode;
+  });
+
+program
+  .command("diff")
+  .description("Compare contract against observed artifacts")
+  .option("--contract <path>", "Path to the contract JSON file")
+  .option("--schema <path>", "Optional path to the contract schema JSON file")
+  .option(
+    "--config <path>",
+    "Optional path to the interfacectl config JSON file (defaults to interfacectl.config.json)",
+  )
+  .option("--root <path>", "Project root (defaults to current working directory)")
+  .option(
+    "--workspace-root <path>",
+    "Workspace root (defaults to current working directory)",
+  )
+  .option(
+    "--surface <id...>",
+    "Limit validation to the provided surface identifiers",
+  )
+  .option(
+    "--json",
+    "Emit machine-readable JSON instead of human-readable text output",
+  )
+  .option("--format <format>", "Output format (text|json)")
+  .option("--out <path>", "Write output to the provided file path instead of stdout")
+  .option("--no-normalize", "Disable normalization (for debugging)")
+  .option("--rename-threshold <0-1>", "Rename detection threshold (default: 0.8)", parseFloat)
+  .option("--policy <path>", "Optional policy path (for policy metadata in output)")
+  .action(async (options) => {
+    const env = process.env;
+    const requestedRoot =
+      options.root ?? options.workspaceRoot ?? env.SURFACES_ROOT;
+    const workspaceRoot =
+      typeof requestedRoot === "string" && requestedRoot.length > 0
+        ? requestedRoot
+        : undefined;
+    const requestedContract =
+      options.contract ?? env.SURFACES_CONTRACT ?? undefined;
+    const contractPath =
+      typeof requestedContract === "string" && requestedContract.length > 0
+        ? requestedContract
+        : "contracts/surfaces.web.contract.json";
+    const requestedConfig =
+      options.config ?? env.SURFACES_CONFIG ?? undefined;
+    const formatInput = (
+      options.format ?? (options.json ? "json" : undefined)
+    )?.toLowerCase();
+    const outputFormat =
+      formatInput === "json" ? "json" : formatInput === "text" ? "text" : "text";
+
+    if (
+      formatInput &&
+      formatInput !== "text" &&
+      formatInput !== "json"
+    ) {
+      console.error(
+        `Invalid format "${options.format}". Expected "text" or "json".`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const exitCode = await runDiffCommand({
+      contractPath,
+      schemaPath: options.schema,
+      workspaceRoot,
+      surfaceFilters: options.surface ?? [],
+      outputFormat,
+      outputPath: options.out,
+      configPath: requestedConfig,
+      configProvided: Boolean(requestedConfig),
+      normalize: options.normalize !== false,
+      renameThreshold: options.renameThreshold,
+      policyPath: options.policy,
+    });
+
+    process.exitCode = exitCode;
+  });
+
+program
+  .command("enforce")
+  .description("Enforce policy on interface contract")
+  .option("--mode <fail|fix|pr>", "Enforcement mode (default: fail)")
+  .option("--strict", "Alias for --mode fail (strict enforcement)")
+  .option("--policy <path>", "Policy JSON path (optional, uses default if not provided)")
+  .option("--contract <path>", "Contract path")
+  .option("--root <path>", "Workspace root")
+  .option("--config <path>", "Config path")
+  .option("--surface <id...>", "Filter surfaces")
+  .option("--dry-run", "For fix mode, show what would change")
+  .option("--format <text|json>", "Output format")
+  .option("--out <path>", "Output file")
+  .option("--json", "Emit machine-readable JSON instead of human-readable text output")
+  .action(async (options) => {
+    const env = process.env;
+    const requestedRoot =
+      options.root ?? env.SURFACES_ROOT;
+    const workspaceRoot =
+      typeof requestedRoot === "string" && requestedRoot.length > 0
+        ? requestedRoot
+        : undefined;
+    const requestedContract =
+      options.contract ?? env.SURFACES_CONTRACT ?? undefined;
+    const requestedConfig =
+      options.config ?? env.SURFACES_CONFIG ?? undefined;
+    const formatInput = (
+      options.format ?? (options.json ? "json" : undefined)
+    )?.toLowerCase();
+    const outputFormat =
+      formatInput === "json" ? "json" : formatInput === "text" ? "text" : "text";
+
+    if (
+      formatInput &&
+      formatInput !== "text" &&
+      formatInput !== "json"
+    ) {
+      console.error(
+        `Invalid format "${options.format}". Expected "text" or "json".`,
+      );
+      process.exitCode = 1;
+      return;
+    }
+
+    const exitCode = await runEnforceCommand({
+      mode: options.mode,
+      strict: options.strict,
+      policyPath: options.policy,
+      contractPath: requestedContract,
+      workspaceRoot,
+      surfaceFilters: options.surface ?? [],
+      outputFormat,
+      outputPath: options.out,
+      configPath: requestedConfig,
+      configProvided: Boolean(options.config),
+      dryRun: options.dryRun,
     });
 
     process.exitCode = exitCode;

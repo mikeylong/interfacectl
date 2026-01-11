@@ -322,5 +322,26 @@ export type {
   DriftViolation,
   ValidationSummary,
   DriftViolationType,
+  DiffOutput,
+  DiffEntry,
+  DiffChangeType,
+  DriftRisk,
+  Severity,
+  SafetyLevel,
+  EnforcementPolicy,
+  EnforcementMode,
+  AutofixRule,
+  FixSummary,
+  FixEntry,
+  FixError,
 } from "./types.js";
 
+export {
+  getBundledDiffSchema,
+  getBundledPolicySchema,
+  getBundledFixSummarySchema,
+  validateDiffOutput,
+  validatePolicy,
+  validateFixSummary,
+  type ValidationResult,
+} from "./schema-validate.js";

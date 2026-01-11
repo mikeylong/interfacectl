@@ -103,3 +103,113 @@ export interface ValidationSummary {
   surfaceReports: SurfaceReport[];
 }
 
+// Diff and enforce types
+
+export type DiffChangeType = "added" | "removed" | "modified" | "renamed";
+export type Severity = "error" | "warning" | "info";
+export type SafetyLevel = "safe" | "mechanical" | "semantic";
+export type EnforcementMode = "fail" | "fix" | "pr";
+
+export interface DiffEntry {
+  surfaceId?: string;
+  type: DiffChangeType;
+  path: string; // JSON Pointer or dot-path, must be stable
+  contractValue?: unknown;
+  observedValue?: unknown;
+  severity: Severity;
+  rule?: string; // Contract clause or rule ID (required for semantic clarity)
+  autofixable?: boolean; // Only true when policy rule allows safe/mechanical autofix
+  rename?: {
+    fromPath: string;
+    toPath: string;
+    confidence: number; // 0-1
+  }; // Only present when type=renamed
+}
+
+export interface DriftRisk {
+  category:
+    | "diff-noise"
+    | "semantic-ambiguity"
+    | "enforcement-overreach"
+    | "policy-drift"
+    | "contract-evolution"
+    | "observed-instability"
+    | "rename-inflation"
+    | "output-schema-drift"
+    | "severity-inflation"
+    | "local-ci-mismatch";
+  severity: Severity;
+  message: string;
+  relatedPaths?: string[];
+}
+
+export interface DiffOutput {
+  schemaVersion: string; // e.g., "1.0.0"
+  tool: { name: "interfacectl"; version: string };
+  policy?: { version: string; fingerprint: string };
+  contract: { path: string; version: string };
+  observed: { root: string; captureProfile?: Record<string, unknown> };
+  normalization: {
+    enabled: boolean;
+    reorderedPaths: string[];
+    strippedPaths: string[];
+  };
+  summary: {
+    totalChanges: number;
+    byType: { added: number; removed: number; modified: number; renamed: number };
+    bySeverity: { error: number; warning: number; info: number };
+  };
+  entries: DiffEntry[]; // Deterministically sorted: surfaceId asc, path asc, type asc
+  driftRisks?: DriftRisk[];
+  repro?: { command: string };
+}
+
+export interface AutofixRule {
+  id: string;
+  pattern: string; // JSONPath/glob pattern, must be documented
+  autofixable: boolean;
+  description: string;
+  safetyLevel: SafetyLevel; // Only safe/mechanical if autofixable=true
+  setSeverity?: Severity; // Optional override for matching diffs
+}
+
+export interface EnforcementPolicy {
+  version: string;
+  fingerprint: string; // SHA-256 hash of canonicalized JSON
+  extends?: string; // Optional base policy preset
+  modes: {
+    fail: { exitOnAny: boolean; severityThreshold: "error" | "warning" };
+    fix: { rules: string[]; dryRun: boolean };
+    pr: { patchFormat: "unified" | "json"; outputPath?: string };
+  };
+  autofixRules: AutofixRule[];
+  budgets?: {
+    maxTotalChanges?: number;
+    maxBySeverity?: { error?: number; warning?: number; info?: number };
+  };
+}
+
+export interface FixEntry {
+  ruleId: string;
+  path: string;
+  oldValue: unknown;
+  newValue: unknown;
+  confidence: number; // 0-1
+  file?: string; // Relative path only
+  lineDelta?: number;
+}
+
+export interface FixError {
+  ruleId: string;
+  path: string;
+  message: string;
+}
+
+export interface FixSummary {
+  schemaVersion: string;
+  mode: "fix" | "pr";
+  policy: { version: string; fingerprint: string };
+  applied: FixEntry[];
+  skipped: FixEntry[];
+  errors: FixError[];
+}
