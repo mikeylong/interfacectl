@@ -33,16 +33,16 @@
 - [x] Golden fixtures structure created
 
 ### Testing
-- [ ] Unit tests for all utilities
-- [ ] Integration tests for CLI commands
-- [ ] Snapshot tests for JSON output
-- [ ] Determinism tests with hash comparison
-- [ ] Schema validation tests
+- [x] Unit tests for all utilities
+- [x] Integration tests for CLI commands
+- [x] Snapshot tests for JSON output
+- [x] Determinism tests with hash comparison
+- [x] Schema validation tests
 
 ### Documentation
-- [ ] docs/diff.md
-- [ ] docs/enforce.md
-- [ ] docs/drift-risks.md
+- [x] docs/diff.md
+- [x] docs/enforce.md
+- [x] docs/drift-risks.md
 
 ## Definition of Done
 
