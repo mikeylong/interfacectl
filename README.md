@@ -5,6 +5,11 @@ Standalone packages for the Surfaces interface contract tooling:
 - `@surfaces/interfacectl-validator` — Types, schema validation, and bundled contract schema.
 - `@surfaces/interfacectl-cli` — CLI wrapper that consumes the validator to run contract checks from any repo.
 
+## Requirements
+
+- **Node.js**: >=18.20.0 or >=20.10.0 (required for `with { type: "json" }` import syntax support)
+- **pnpm**: 10.26.2 (specified in `packageManager` field)
+
 ## Getting Started
 
 ```bash

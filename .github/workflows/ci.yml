@@ -28,6 +28,8 @@ jobs:
           cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+      - name: Verify source files are tracked
+        run: bash scripts/verify-source-files.sh
       - name: Build packages
         run: pnpm run build
       - name: Run tests

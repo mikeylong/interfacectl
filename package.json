@@ -3,10 +3,14 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=18.20.0 || >=20.10.0"
+  },
   "scripts": {
     "build": "pnpm -r --filter \"./packages/**\" run build",
     "clean": "pnpm -r run clean",
     "test": "pnpm -r --filter \"./packages/**\" run test",
+    "verify": "bash scripts/verify-source-files.sh",
     "ci": "pnpm install --frozen-lockfile && pnpm run build && pnpm run test",
     "changeset": "changeset",
     "release": "changeset publish"
