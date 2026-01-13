@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.surfaces.local/interfacectl.policy.schema.json",
+  "title": "interfacectl enforcement policy",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "fingerprint", "modes", "autofixRules"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "description": "Policy version. Treat as a human-managed semantic version.",
+      "minLength": 1
+    },
+    "fingerprint": {
+      "type": "string",
+      "description": "Deterministic hash of policy content; may be verified by tool (implementation-defined).",
+      "pattern": "^[a-f0-9]{32,128}$"
+    },
+    "extends": {
+      "type": "string",
+      "description": "Optional base policy preset identifier or path. The resolved policy must still be fingerprinted deterministically."
+    },
+    "modes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["fail", "fix", "pr"],
+      "properties": {
+        "fail": { "$ref": "#/$defs/FailMode" },
+        "fix": { "$ref": "#/$defs/FixMode" },
+        "pr": { "$ref": "#/$defs/PrMode" }
+      }
+    },
+    "autofixRules": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/AutofixRule" }
+    },
+    "budgets": {
+      "type": "object",
+      "description": "Optional drift budgeting for gradual rollout.",
+      "additionalProperties": false,
+      "properties": {
+        "maxTotalChanges": { "type": "integer", "minimum": 0 },
+        "maxBySeverity": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "error": { "type": "integer", "minimum": 0 },
+            "warning": { "type": "integer", "minimum": 0 },
+            "info": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "Severity": { "type": "string", "enum": ["error", "warning", "info"] },
+    "EnforcementMode": { "type": "string", "enum": ["fail", "fix", "pr"] },
+    "SafetyLevel": {
+      "type": "string",
+      "description": "Only safe/mechanical may be applied automatically.",
+      "enum": ["safe", "mechanical", "semantic"]
+    },
+    "FailMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["exitOnAny", "severityThreshold"],
+      "properties": {
+        "exitOnAny": { "type": "boolean" },
+        "severityThreshold": {
+          "type": "string",
+          "enum": ["error", "warning"],
+          "description": "Fail when any entry at or above this severity exists."
+        }
+      }
+    },
+    "FixMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rules", "dryRun"],
+      "properties": {
+        "rules": {
+          "type": "array",
+          "description": "Allowed rule IDs to apply in fix mode.",
+          "items": { "type": "string", "minLength": 1 }
+        },
+        "dryRun": { "type": "boolean" }
+      }
+    },
+    "PrMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["patchFormat"],
+      "properties": {
+        "patchFormat": { "type": "string", "enum": ["unified", "json"] },
+        "outputPath": { "type": "string" }
+      }
+    },
+    "AutofixRule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pattern", "autofixable", "description", "safetyLevel"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "pattern": {
+          "type": "string",
+          "description": "Path pattern (JSON Pointer, dot-path glob, or JSONPath-style). Must be documented by implementation.",
+          "minLength": 1
+        },
+        "autofixable": { "type": "boolean" },
+        "description": { "type": "string", "minLength": 1 },
+        "safetyLevel": { "$ref": "#/$defs/SafetyLevel" },
+        "setSeverity": {
+          "type": "string",
+          "enum": ["error", "warning", "info"],
+          "description": "Optional override: classify matching diffs into this severity."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "autofixable": { "const": true } }, "required": ["autofixable"] },
+          "then": {
+            "properties": { "safetyLevel": { "enum": ["safe", "mechanical"] } },
+            "description": "Semantic autofix is never allowed."
+          }
+        }
+      ]
+    }
+  }
+}

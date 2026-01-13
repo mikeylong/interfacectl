@@ -233,3 +233,4 @@ function buildSectionIndex(sections) {
 function findSurface(surfaces, surfaceId) {
     return surfaces.find((surface) => surface.id === surfaceId);
 }
+export { getBundledDiffSchema, getBundledPolicySchema, getBundledFixSummarySchema, validateDiffOutput, validatePolicy, validateFixSummary, } from "./schema-validate.js";

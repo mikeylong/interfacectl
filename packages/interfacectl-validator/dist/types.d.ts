@@ -76,4 +76,133 @@ export interface ValidationSummary {
     contract: InterfaceContract;
     surfaceReports: SurfaceReport[];
 }
+export type DiffChangeType = "added" | "removed" | "modified" | "renamed";
+export type Severity = "error" | "warning" | "info";
+export type SafetyLevel = "safe" | "mechanical" | "semantic";
+export type EnforcementMode = "fail" | "fix" | "pr";
+export interface DiffEntry {
+    surfaceId?: string;
+    type: DiffChangeType;
+    path: string;
+    contractValue?: unknown;
+    observedValue?: unknown;
+    severity: Severity;
+    rule?: string;
+    autofixable?: boolean;
+    rename?: {
+        fromPath: string;
+        toPath: string;
+        confidence: number;
+    };
+}
+export interface DriftRisk {
+    category: "diff-noise" | "semantic-ambiguity" | "enforcement-overreach" | "policy-drift" | "contract-evolution" | "observed-instability" | "rename-inflation" | "output-schema-drift" | "severity-inflation" | "local-ci-mismatch";
+    severity: Severity;
+    message: string;
+    relatedPaths?: string[];
+}
+export interface DiffOutput {
+    schemaVersion: string;
+    tool: {
+        name: "interfacectl";
+        version: string;
+    };
+    policy?: {
+        version: string;
+        fingerprint: string;
+    };
+    contract: {
+        path: string;
+        version: string;
+    };
+    observed: {
+        root: string;
+        captureProfile?: Record<string, unknown>;
+    };
+    normalization: {
+        enabled: boolean;
+        reorderedPaths: string[];
+        strippedPaths: string[];
+    };
+    summary: {
+        totalChanges: number;
+        byType: {
+            added: number;
+            removed: number;
+            modified: number;
+            renamed: number;
+        };
+        bySeverity: {
+            error: number;
+            warning: number;
+            info: number;
+        };
+    };
+    entries: DiffEntry[];
+    driftRisks?: DriftRisk[];
+    repro?: {
+        command: string;
+    };
+}
+export interface AutofixRule {
+    id: string;
+    pattern: string;
+    autofixable: boolean;
+    description: string;
+    safetyLevel: SafetyLevel;
+    setSeverity?: Severity;
+}
+export interface EnforcementPolicy {
+    version: string;
+    fingerprint: string;
+    extends?: string;
+    modes: {
+        fail: {
+            exitOnAny: boolean;
+            severityThreshold: "error" | "warning";
+        };
+        fix: {
+            rules: string[];
+            dryRun: boolean;
+        };
+        pr: {
+            patchFormat: "unified" | "json";
+            outputPath?: string;
+        };
+    };
+    autofixRules: AutofixRule[];
+    budgets?: {
+        maxTotalChanges?: number;
+        maxBySeverity?: {
+            error?: number;
+            warning?: number;
+            info?: number;
+        };
+    };
+}
+export interface FixEntry {
+    ruleId: string;
+    path: string;
+    oldValue: unknown;
+    newValue: unknown;
+    confidence: number;
+    file?: string;
+    lineDelta?: number;
+}
+export interface FixError {
+    ruleId: string;
+    path: string;
+    message: string;
+}
+export interface FixSummary {
+    schemaVersion: string;
+    mode: "fix" | "pr";
+    policy: {
+        version: string;
+        fingerprint: string;
+    };
+    applied: FixEntry[];
+    skipped: FixEntry[];
+    errors: FixError[];
+}
 //# sourceMappingURL=types.d.ts.map
