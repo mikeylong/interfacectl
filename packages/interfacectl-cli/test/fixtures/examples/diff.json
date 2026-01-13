@@ -1,0 +1,75 @@
+{
+  "schemaVersion": "1.0.0",
+  "tool": {
+    "name": "interfacectl",
+    "version": "0.1.0"
+  },
+  "contract": {
+    "path": "contracts/surfaces.web.contract.json",
+    "version": "0.1.0"
+  },
+  "observed": {
+    "root": ".",
+    "captureProfile": {
+      "method": "static-analysis",
+      "timestamp": "2025-01-01T00:00:00Z"
+    }
+  },
+  "normalization": {
+    "enabled": true,
+    "reorderedPaths": [
+      "surfaces[0].allowedFonts",
+      "surfaces[0].allowedColors"
+    ],
+    "strippedPaths": [
+      "descriptors[interfacectl-web].sections[0].source"
+    ]
+  },
+  "summary": {
+    "totalChanges": 2,
+    "byType": {
+      "added": 1,
+      "removed": 0,
+      "modified": 1,
+      "renamed": 0
+    },
+    "bySeverity": {
+      "error": 1,
+      "warning": 1,
+      "info": 0
+    }
+  },
+  "entries": [
+    {
+      "surfaceId": "interfacectl-web",
+      "type": "added",
+      "path": "surfaces/interfacectl-web/allowedFonts",
+      "observedValue": "var(--font-custom)",
+      "severity": "error",
+      "rule": "contract.surfaces[interfacectl-web].allowedFonts",
+      "autofixable": false
+    },
+    {
+      "surfaceId": "interfacectl-web",
+      "type": "modified",
+      "path": "surfaces/interfacectl-web/layout.maxContentWidth",
+      "contractValue": 1120,
+      "observedValue": 1200,
+      "severity": "warning",
+      "rule": "contract.surfaces[interfacectl-web].layout.maxContentWidth"
+    }
+  ],
+  "driftRisks": [
+    {
+      "category": "diff-noise",
+      "severity": "info",
+      "message": "1 diff entries were filtered as noise (reorder-only or formatting-only changes)",
+      "relatedPaths": [
+        "surfaces[0].allowedFonts"
+      ]
+    }
+  ],
+  "repro": {
+    "command": "interfacectl diff --contract \"contracts/surfaces.web.contract.json\" --root \".\""
+  }
+}

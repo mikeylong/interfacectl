@@ -1,0 +1,43 @@
+{
+  "version": "1.0.0",
+  "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "modes": {
+    "fail": {
+      "exitOnAny": true,
+      "severityThreshold": "error"
+    },
+    "fix": {
+      "rules": ["font-rename", "color-format"],
+      "dryRun": false
+    },
+    "pr": {
+      "patchFormat": "json",
+      "outputPath": "fixes.patch.json"
+    }
+  },
+  "autofixRules": [
+    {
+      "id": "font-rename",
+      "pattern": "surfaces/*/allowedFonts/*",
+      "autofixable": true,
+      "description": "Allow automatic renaming of font values to match contract",
+      "safetyLevel": "mechanical",
+      "setSeverity": "warning"
+    },
+    {
+      "id": "color-format",
+      "pattern": "surfaces/*/allowedColors/*",
+      "autofixable": true,
+      "description": "Allow automatic format conversion of color values",
+      "safetyLevel": "safe"
+    }
+  ],
+  "budgets": {
+    "maxTotalChanges": 10,
+    "maxBySeverity": {
+      "error": 0,
+      "warning": 5,
+      "info": 10
+    }
+  }
+}

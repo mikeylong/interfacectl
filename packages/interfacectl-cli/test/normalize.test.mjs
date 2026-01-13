@@ -1,0 +1,91 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  normalizeSetField,
+  stripEphemeralFields,
+  normalizeContract,
+  normalizeDescriptor,
+} from "../dist/utils/normalize.js";
+
+test("normalizeSetField sorts arrays deterministically", () => {
+  const input = ["c", "a", "b"];
+  const normalized = normalizeSetField(input);
+  assert.deepEqual(normalized, ["a", "b", "c"]);
+});
+
+test("normalizeSetField handles empty arrays", () => {
+  const input = [];
+  const normalized = normalizeSetField(input);
+  assert.deepEqual(normalized, []);
+});
+
+test("stripEphemeralFields removes source fields", () => {
+  const input = {
+    id: "test",
+    source: "file.ts",
+    value: "test-value",
+  };
+  const { result } = stripEphemeralFields(input);
+  assert.equal(result.id, "test");
+  assert.equal(result.value, "test-value");
+  assert.equal(result.source, undefined);
+});
+
+test("stripEphemeralFields tracks stripped paths", () => {
+  const input = {
+    id: "test",
+    source: "file.ts",
+  };
+  const { result, strippedPaths } = stripEphemeralFields(input);
+  assert(strippedPaths.includes("source") || strippedPaths.includes("id.source"));
+  assert.equal(result.source, undefined);
+});
+
+test("normalizeContract sorts set-like arrays", () => {
+  const contract = {
+    contractId: "test",
+    version: "1.0.0",
+    surfaces: [
+      {
+        id: "test-surface",
+        displayName: "Test",
+        type: "web",
+        requiredSections: ["b", "a", "c"],
+        allowedFonts: ["font2", "font1"],
+        allowedColors: ["color2", "color1"],
+        layout: { maxContentWidth: 1000 },
+      },
+    ],
+    sections: [],
+    constraints: {
+      motion: {
+        allowedDurationsMs: [200, 100],
+        allowedTimingFunctions: ["ease", "linear"],
+      },
+    },
+  };
+  const normalized = normalizeContract(contract);
+  assert.deepEqual(
+    normalized.contract.surfaces[0].requiredSections,
+    ["a", "b", "c"],
+  );
+  assert.deepEqual(
+    normalized.contract.surfaces[0].allowedFonts,
+    ["font1", "font2"],
+  );
+});
+
+test("normalizeDescriptor strips ephemeral fields", () => {
+  const descriptor = {
+    surfaceId: "test",
+    sections: [{ id: "section1", source: "file.ts" }],
+    fonts: [{ value: "font1", source: "file.ts" }],
+    colors: [{ value: "color1", source: "file.ts" }],
+    layout: { maxContentWidth: 1000, source: "file.ts" },
+    motion: [],
+  };
+  const normalized = normalizeDescriptor(descriptor);
+  assert.equal(normalized.descriptor.sections[0].source, undefined);
+  assert.equal(normalized.descriptor.fonts[0].source, undefined);
+  assert.equal(normalized.descriptor.layout.source, undefined);
+});
