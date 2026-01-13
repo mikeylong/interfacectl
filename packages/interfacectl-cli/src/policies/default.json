@@ -1,0 +1,18 @@
+{
+  "version": "1.0.0",
+  "fingerprint": "0000000000000000000000000000000000000000000000000000000000000000",
+  "modes": {
+    "fail": {
+      "exitOnAny": true,
+      "severityThreshold": "error"
+    },
+    "fix": {
+      "rules": [],
+      "dryRun": true
+    },
+    "pr": {
+      "patchFormat": "json"
+    }
+  },
+  "autofixRules": []
+}
