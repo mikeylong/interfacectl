@@ -29,10 +29,10 @@ jobs:
       - name: Run tests
         run: pnpm run test
       - name: Publish packages
-        if: ${{ secrets.NPM_TOKEN != '' }}
+        if: secrets.NPM_TOKEN != ''
         run: pnpm changeset publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
       - name: Publish skipped
-        if: ${{ secrets.NPM_TOKEN == '' }}
+        if: secrets.NPM_TOKEN == ''
         run: echo "NPM_TOKEN not configured; skipping publish."
