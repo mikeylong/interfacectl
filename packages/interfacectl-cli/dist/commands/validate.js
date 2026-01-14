@@ -3,6 +3,8 @@ import { readFile, writeFile, mkdir } from "node:fs/promises";
 import pc from "picocolors";
 import { validateContractStructure, evaluateContractCompliance, getBundledContractSchema, } from "@surfaces/interfacectl-validator";
 import { collectSurfaceDescriptors, } from "../descriptors/static-analysis.js";
+import { getExitCodeVersion } from "../utils/exit-codes.js";
+import { classifyViolationType, getExitCodeForCategory, } from "../utils/violation-classifier.js";
 export async function runValidateCommand(options) {
     const workspaceRoot = path.resolve(options.workspaceRoot ?? process.cwd());
     const contractInput = options.contractPath ?? "contracts/surfaces.web.contract.json";
@@ -32,6 +34,8 @@ export async function runValidateCommand(options) {
     });
     const findings = [];
     let surfaceRootMap = new Map();
+    // Determine exit code version
+    const exitCodeVersion = getExitCodeVersion({ exitCodes: options.exitCodes });
     const finalize = async (exitCode, contractVersion) => {
         if (isJson) {
             const payload = buildJsonResult(contractPath, contractVersion ?? null, findings);
@@ -62,10 +66,12 @@ export async function runValidateCommand(options) {
         findings.push({
             code: "contract.read-error",
             severity: "error",
+            category: "E0",
             message,
             location: contractPath,
         });
-        return finalize(2, null);
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+        return finalize(e0ExitCode, null);
     }
     const initialContractVersion = extractContractVersion(contractSource.value);
     const configResult = await loadConfigFile(configPath);
@@ -81,10 +87,12 @@ export async function runValidateCommand(options) {
         findings.push({
             code: "config.load-error",
             severity: "error",
+            category: "E0",
             message,
             location: configPath,
         });
-        return finalize(2, initialContractVersion);
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+        return finalize(e0ExitCode, initialContractVersion);
     }
     const schemaSource = schemaPath
         ? await loadJson(schemaPath, "schema", true)
@@ -102,10 +110,12 @@ export async function runValidateCommand(options) {
         findings.push({
             code: "contract.schema-load-error",
             severity: "error",
+            category: "E0",
             message,
             location: schemaPath,
         });
-        return finalize(2, initialContractVersion);
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+        return finalize(e0ExitCode, initialContractVersion);
     }
     const structureResult = schema
         ? validateContractStructure(contractSource.value, schema)
@@ -126,11 +136,13 @@ export async function runValidateCommand(options) {
                 findings.push({
                     code: "contract.schema-error",
                     severity: "error",
+                    category: "E0",
                     message: error,
                 });
             }
         }
-        return finalize(2, initialContractVersion);
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+        return finalize(e0ExitCode, initialContractVersion);
     }
     const contract = structureResult.contract;
     const surfaceFilters = new Set((options.surfaceFilters ?? []).map((value) => value.trim()));
@@ -161,7 +173,8 @@ export async function runValidateCommand(options) {
         for (const error of structuralDescriptorResult.errors) {
             findings.push(issueToFinding(error, "error"));
         }
-        return finalize(2, contract.version ?? initialContractVersion);
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+        return finalize(e0ExitCode, contract.version ?? initialContractVersion);
     }
     const summary = evaluateContractCompliance(contract, structuralDescriptorResult.descriptors);
     const violationFindings = mapViolationsToFindings(summary);
@@ -169,8 +182,37 @@ export async function runValidateCommand(options) {
     if (!isJson) {
         printSummary(summary, textReporter);
     }
-    const hasErrors = violationFindings.some((finding) => finding.severity === "error");
-    return finalize(hasErrors ? 1 : 0, contract.version ?? initialContractVersion);
+    // Determine exit code based on violation categories
+    let exitCode;
+    if (violationFindings.length === 0) {
+        exitCode = 0;
+    }
+    else {
+        // Find the highest severity category (E2 > E1)
+        let maxCategory = null;
+        for (const finding of violationFindings) {
+            const category = finding.category;
+            if (category === "E2") {
+                maxCategory = "E2";
+                break; // E2 is highest, no need to continue
+            }
+            else if (category === "E1" && (maxCategory === null || maxCategory === "E1")) {
+                maxCategory = "E1";
+            }
+        }
+        if (maxCategory) {
+            exitCode = getExitCodeForCategory(maxCategory, exitCodeVersion);
+        }
+        else {
+            // Fallback (should not happen, but handle gracefully)
+            exitCode = exitCodeVersion === "v2" ? 30 : 1;
+        }
+        // Print deprecation warning for v1
+        if (exitCodeVersion === "v1") {
+            process.stderr.write("Deprecation: default exit codes will change. Use --exit-codes v2 to opt in.\n");
+        }
+    }
+    return finalize(exitCode, contract.version ?? initialContractVersion);
 }
 async function loadJson(filePath, label, optional = false) {
     try {
@@ -210,6 +252,7 @@ function issueToFinding(issue, severity) {
     return {
         code: issue.code,
         severity,
+        category: "E0", // Descriptor errors are E0 (artifact invalid)
         surface: issue.surfaceId,
         message: issue.message,
         location: issue.location,
@@ -235,9 +278,11 @@ function mapViolationsToFindings(summary) {
     for (const report of summary.surfaceReports) {
         for (const violation of report.violations) {
             const details = (violation.details ?? {});
+            const category = classifyViolationType(violation.type);
             const finding = {
                 code: codeMap[violation.type] ?? violation.type,
                 severity: "error",
+                category,
                 surface: violation.surfaceId,
                 message: violation.message,
             };

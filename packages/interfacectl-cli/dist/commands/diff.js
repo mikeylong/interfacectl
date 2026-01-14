@@ -6,8 +6,11 @@ import { validateContractStructure, getBundledContractSchema, validateDiffOutput
 import { collectSurfaceDescriptors, } from "../descriptors/static-analysis.js";
 import { normalizeContract, normalizeDescriptor } from "../utils/normalize.js";
 import { compareContractToDescriptor, } from "../utils/compare.js";
-import { detectAllDriftRisks } from "../utils/drift-detection.js";
+import { detectAllDriftRisks, detectDiffNoise } from "../utils/drift-detection.js";
 import { loadPolicy } from "../utils/policy.js";
+import { getExitCodeVersion } from "../utils/exit-codes.js";
+import { getMaxSeverity } from "../utils/violation-classifier.js";
+import { applyPolicySeverityOverrides } from "../utils/apply-policy-severity.js";
 async function loadConfigFile(configPath) {
     try {
         const raw = await readFile(configPath, "utf-8");
@@ -63,6 +66,31 @@ function extractContractVersion(value) {
         return typeof candidate === "string" ? candidate : null;
     }
     return null;
+}
+/**
+ * Get exit code for diff command based on entries and version.
+ * v1: entries.length === 0 ? 0 : 1 (backward compatible, E3 does not exist)
+ * v2: 0 (no entries), 30 (blocking drift), 40 (E3: non-blocking drift)
+ */
+function getDiffExitCode(entries, exitCodeVersion) {
+    if (entries.length === 0) {
+        return 0;
+    }
+    if (exitCodeVersion === "v1") {
+        // v1: backward compatible - any entries → exit 1
+        return 1;
+    }
+    // v2: determine based on maxSeverity
+    const maxSeverity = getMaxSeverity(entries);
+    if (!maxSeverity) {
+        return 0;
+    }
+    if (maxSeverity === "info") {
+        // E3: non-blocking drift (all entries are info)
+        return 40;
+    }
+    // E2: blocking drift (error or warning entries)
+    return 30;
 }
 function sortDiffEntries(entries) {
     return [...entries].sort((a, b) => {
@@ -210,6 +238,8 @@ export async function runDiffCommand(options) {
         : path.resolve(workspaceRoot, configInput);
     const normalizeEnabled = options.normalize !== false;
     const renameThreshold = options.renameThreshold ?? 0.8;
+    // Determine exit code version
+    const exitCodeVersion = getExitCodeVersion({ exitCodes: options.exitCodes });
     const finalize = async (exitCode, output) => {
         if (!output) {
             return exitCode;
@@ -236,6 +266,7 @@ export async function runDiffCommand(options) {
     // Load contract
     const contractSource = await loadJson(contractPath, "contract");
     if (!contractSource.ok) {
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
         if (isJson) {
             const errorOutput = {
                 schemaVersion: "1.0.0",
@@ -250,12 +281,12 @@ export async function runDiffCommand(options) {
                 },
                 entries: [],
             };
-            await finalize(2, errorOutput);
+            await finalize(e0ExitCode, errorOutput);
         }
         else {
             console.error(`Failed to read contract: ${contractSource.error}`);
         }
-        return 2;
+        return e0ExitCode;
     }
     const initialContractVersion = extractContractVersion(contractSource.value);
     // Validate contract structure
@@ -267,6 +298,7 @@ export async function runDiffCommand(options) {
         : getBundledContractSchema();
     const structureResult = validateContractStructure(contractSource.value, schema);
     if (!structureResult.ok || !structureResult.contract) {
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
         if (isJson) {
             const errorOutput = {
                 schemaVersion: "1.0.0",
@@ -281,7 +313,7 @@ export async function runDiffCommand(options) {
                 },
                 entries: [],
             };
-            await finalize(2, errorOutput);
+            await finalize(e0ExitCode, errorOutput);
         }
         else {
             console.error("Contract structure validation failed:");
@@ -289,7 +321,7 @@ export async function runDiffCommand(options) {
                 console.error(`  • ${error}`);
             }
         }
-        return 2;
+        return e0ExitCode;
     }
     const contract = structureResult.contract;
     // Load config
@@ -301,10 +333,11 @@ export async function runDiffCommand(options) {
         }
     }
     else if (configResult.ok === false && configResult.reason !== "missing") {
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
         if (!isJson) {
             console.error(`Failed to load config: ${configResult.error}`);
         }
-        return 2;
+        return e0ExitCode;
     }
     // Load policy if provided
     let policy;
@@ -323,13 +356,14 @@ export async function runDiffCommand(options) {
         surfaceRootMap,
     });
     if (descriptorResult.errors.length > 0) {
+        const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
         if (!isJson) {
             console.error("Surface descriptor errors:");
             for (const error of descriptorResult.errors) {
                 console.error(`  • ${error.message}`);
             }
         }
-        return 2;
+        return e0ExitCode;
     }
     // Normalize contract and descriptors
     const normalizedContract = normalizeEnabled
@@ -344,6 +378,10 @@ export async function runDiffCommand(options) {
         const entries = compareContractToDescriptor(normalizedContract, normalizedDesc, normalizedDesc.descriptor.surfaceId);
         allEntries.push(...entries);
     }
+    // Apply policy severity overrides (deterministic, runs before noise filtering)
+    const entriesWithOverrides = applyPolicySeverityOverrides(allEntries, policy);
+    // Filter diff-noise entries (formatting/reorder-only changes)
+    const filteredEntries = detectDiffNoise(entriesWithOverrides);
     // Build output
     const output = {
         schemaVersion: "1.0.0",
@@ -364,20 +402,20 @@ export async function runDiffCommand(options) {
             strippedPaths: normalizedContract.metadata.strippedPaths,
         },
         summary: {
-            totalChanges: allEntries.length,
+            totalChanges: filteredEntries.length,
             byType: {
-                added: allEntries.filter((e) => e.type === "added").length,
-                removed: allEntries.filter((e) => e.type === "removed").length,
-                modified: allEntries.filter((e) => e.type === "modified").length,
-                renamed: allEntries.filter((e) => e.type === "renamed").length,
+                added: filteredEntries.filter((e) => e.type === "added").length,
+                removed: filteredEntries.filter((e) => e.type === "removed").length,
+                modified: filteredEntries.filter((e) => e.type === "modified").length,
+                renamed: filteredEntries.filter((e) => e.type === "renamed").length,
             },
             bySeverity: {
-                error: allEntries.filter((e) => e.severity === "error").length,
-                warning: allEntries.filter((e) => e.severity === "warning").length,
-                info: allEntries.filter((e) => e.severity === "info").length,
+                error: filteredEntries.filter((e) => e.severity === "error").length,
+                warning: filteredEntries.filter((e) => e.severity === "warning").length,
+                info: filteredEntries.filter((e) => e.severity === "info").length,
             },
         },
-        entries: sortDiffEntries(allEntries),
+        entries: sortDiffEntries(filteredEntries),
         repro: {
             command: `interfacectl diff --contract "${contractPath}" --root "${workspaceRoot}"`,
         },
@@ -397,7 +435,11 @@ export async function runDiffCommand(options) {
             }
         }
     }
-    // Determine exit code: 0 (no diffs), 1 (diffs exist), 2 (config error), 3 (internal error)
-    const exitCode = allEntries.length === 0 ? 0 : 1;
+    // Determine exit code based on filtered entries and severity
+    const exitCode = getDiffExitCode(filteredEntries, exitCodeVersion);
+    // Print deprecation warning for v1 when diffs exist
+    if (exitCodeVersion === "v1" && filteredEntries.length > 0) {
+        process.stderr.write("Deprecation: default exit codes will change. Use --exit-codes v2 to opt in.\n");
+    }
     return finalize(exitCode, output);
 }

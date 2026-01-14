@@ -1,4 +1,5 @@
 import { EnforcementMode } from "@surfaces/interfacectl-validator";
+import { type ExitCodeVersion } from "../utils/exit-codes.js";
 type OutputFormat = "text" | "json";
 export interface EnforceCommandOptions {
     mode?: EnforcementMode;
@@ -12,6 +13,7 @@ export interface EnforceCommandOptions {
     configPath?: string;
     configProvided?: boolean;
     dryRun?: boolean;
+    exitCodes?: ExitCodeVersion;
 }
 export declare function runEnforceCommand(options: EnforceCommandOptions): Promise<number>;
 export {};

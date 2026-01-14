@@ -1,3 +1,4 @@
+import { type ExitCodeVersion } from "../utils/exit-codes.js";
 type OutputFormat = "text" | "json";
 export interface ValidateCommandOptions {
     contractPath?: string;
@@ -8,6 +9,7 @@ export interface ValidateCommandOptions {
     outputPath?: string;
     configPath?: string;
     configProvided?: boolean;
+    exitCodes?: ExitCodeVersion;
 }
 export declare function runValidateCommand(options: ValidateCommandOptions): Promise<number>;
 export {};

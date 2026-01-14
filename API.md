@@ -35,11 +35,22 @@ Performs comprehensive validation of surface implementations against an interfac
 | `--format <text\|json>` | Output format | `text` |
 | `--json` | Emit JSON output (shortcut for `--format json`) | `false` |
 | `--out <path>` | Write output to file instead of stdout | stdout |
+| `--exit-codes <v1\|v2>` | Exit code version (default: v1, use v2 for new contract) | `v1` |
 
 **Exit Codes:**
+
+**v1 (legacy, default):**
 - `0`: All surfaces comply with the contract
 - `1`: Contract violations detected
 - `2`: Configuration or contract loading error
+
+**v2 (new contract, opt-in via `--exit-codes v2` or `INTERFACECTL_EXIT_CODES=v2`):**
+- `0`: All surfaces comply with the contract
+- `10`: E0 - Artifact invalid (config/contract load failures, schema parse errors, internal errors)
+- `20`: E1 - Token policy violation (font/color/motion not allowed)
+- `30`: E2 - Interface contract violation (layout/section violations)
+
+**Note:** v1 internal errors use exit code `2`. v2 unifies all E0 conditions to exit code `10`. Use `--exit-codes v2` to opt into the new exit code contract. A deprecation warning is printed in v1 mode when violations occur.
 
 **Violation Types Detected:**
 - `surface.unknown`: Surface ID not found in contract
@@ -68,6 +79,7 @@ Performs comprehensive validation of surface implementations against an interfac
     {
       "code": "string",
       "severity": "error | warning",
+      "category": "E0 | E1 | E2 | E3",
       "surface": "string",
       "message": "string",
       "expected": "unknown",
@@ -108,11 +120,23 @@ Performs a structural comparison between the contract definition and observed su
 | `--no-normalize` | Disable normalization (for debugging) | Normalization enabled |
 | `--rename-threshold <0-1>` | Rename detection threshold (0.0-1.0) | `0.8` |
 | `--policy <path>` | Optional policy path (for policy metadata in output) | None |
+| `--exit-codes <v1\|v2>` | Exit code version (default: v1, use v2 for new contract) | `v1` |
 
 **Exit Codes:**
+
+**v1 (legacy, default):**
 - `0`: No differences found
-- `1`: Differences detected
+- `1`: Differences detected (any severity)
 - `2`: Configuration or contract loading error
+- `3`: Internal error (preserved from existing behavior)
+
+**v2 (new contract, opt-in via `--exit-codes v2` or `INTERFACECTL_EXIT_CODES=v2`):**
+- `0`: No differences found
+- `10`: E0 - Artifact invalid (config/contract load failures, schema parse errors, internal errors)
+- `30`: E2 - Blocking drift (error or warning entries detected)
+- `40`: E3 - Non-blocking drift (all entries are info severity after policy overrides)
+
+**Note:** E3 (non-blocking drift) only exists in v2 and requires policy-driven severity downgrades to `info`. v1 always exits `1` if any entries exist, regardless of severity. A deprecation warning is printed in v1 mode when diffs exist.
 
 **Diff Entry Types:**
 - `added`: Path exists in contract but not in observed
@@ -237,6 +261,7 @@ Applies enforcement policies to interface contracts through three modes:
 | `--format <text\|json>` | Output format | `text` |
 | `--json` | Emit JSON output (shortcut for `--format json`) | `false` |
 | `--out <path>` | Output file path | stdout |
+| `--exit-codes <v1\|v2>` | Exit code version (default: v1, use v2 for new contract) | `v1` |
 
 **Enforcement Modes:**
 
@@ -259,9 +284,18 @@ Applies enforcement policies to interface contracts through three modes:
    - Suitable for automated PR generation
 
 **Exit Codes:**
+
+**v1 (legacy, default):**
 - `0`: Enforcement passed (no violations or fixes applied successfully)
 - `1`: Violations remaining or enforcement failed
 - `2`: Configuration or policy loading error
+
+**v2 (new contract, opt-in via `--exit-codes v2` or `INTERFACECTL_EXIT_CODES=v2`):**
+- `0`: Enforcement passed (no violations or fixes applied successfully)
+- `10`: E0 - Artifact invalid (config/policy load failures, internal errors)
+- `30`: E2 - Violations remaining (does not distinguish E1 vs E2 for exit codes)
+
+**Note:** enforce does not distinguish E1 (token policy) vs E2 (interface contract) violations for exit codes - both return `30` in v2. However, JSON findings still carry `category: "E1"` or `category: "E2"` so downstream tools can see what happened. A deprecation warning is printed in v1 mode when violations exist.
 
 **Output Format (JSON):**
 ```json
@@ -322,6 +356,7 @@ Maps surface IDs to their root directories in the codebase.
 - `SURFACES_ROOT`: Default workspace root directory
 - `SURFACES_CONTRACT`: Default contract file path
 - `SURFACES_CONFIG`: Default config file path
+- `INTERFACECTL_EXIT_CODES`: Exit code version (`v1` or `v2`, default: `v1`)
 
 ---
 
@@ -400,6 +435,33 @@ All commands provide structured error reporting:
 - Exit codes for programmatic handling
 - JSON error output for machine parsing
 - Detailed validation error listings
+
+## Exit Code Reference (v2)
+
+When using `--exit-codes v2` or `INTERFACECTL_EXIT_CODES=v2`:
+
+**validate v2**: 0 / 10 / 20 / 30
+- `0`: Fully compliant
+- `10`: E0 - Artifact invalid
+- `20`: E1 - Token policy violation
+- `30`: E2 - Interface contract violation
+
+**diff v2**: 0 / 10 / 30 / 40
+- `0`: No diffs found
+- `10`: E0 - Artifact invalid
+- `30`: E2 - Blocking drift (error/warning entries)
+- `40`: E3 - Non-blocking drift (all entries are info)
+
+**enforce v2**: 0 / 10 / 30
+- `0`: Enforcement passed (no violations or fixes applied successfully)
+- `10`: E0 - Artifact invalid
+- `30`: E2 - Violations remaining (does not distinguish E1 vs E2)
+
+**Note on v1 internal errors:** v1 internal errors may be `2` or `3` depending on command (diff uses `3` if it currently does); v2 unifies to `10`.
+
+**Category Field:** The `category` field in JSON findings is stable and versioned with the output schema. It is always present (not optional) and not best-effort. Categories: `E0` (artifact invalid), `E1` (token policy), `E2` (interface contract), `E3` (drift non-blocking, diff v2 only).
+
+**Compatibility:** v1 (default) behavior is preserved. Use `--exit-codes v2` to opt into the new exit code contract. Deprecation warnings are printed in v1 mode when violations occur. The default will change to v2 in a future major release.
 
 ---
 

@@ -13,6 +13,12 @@ import {
   collectSurfaceDescriptors,
   type DescriptorIssue,
 } from "../descriptors/static-analysis.js";
+import { getExitCodeVersion, type ExitCodeVersion } from "../utils/exit-codes.js";
+import {
+  classifyViolationType,
+  getExitCodeForCategory,
+  type ViolationCategory,
+} from "../utils/violation-classifier.js";
 
 type OutputFormat = "text" | "json";
 type FindingSeverity = "error" | "warning";
@@ -20,6 +26,7 @@ type FindingSeverity = "error" | "warning";
 interface JsonFinding {
   code: string;
   severity: FindingSeverity;
+  category: ViolationCategory;
   surface?: string;
   message: string;
   expected?: unknown;
@@ -57,6 +64,7 @@ export interface ValidateCommandOptions {
   outputPath?: string;
   configPath?: string;
   configProvided?: boolean;
+  exitCodes?: ExitCodeVersion;
 }
 
 export async function runValidateCommand(
@@ -95,6 +103,9 @@ export async function runValidateCommand(
 
   const findings: JsonFinding[] = [];
   let surfaceRootMap = new Map<string, string>();
+
+  // Determine exit code version
+  const exitCodeVersion = getExitCodeVersion({ exitCodes: options.exitCodes });
 
   const finalize = async (
     exitCode: number,
@@ -135,10 +146,12 @@ export async function runValidateCommand(
     findings.push({
       code: "contract.read-error",
       severity: "error",
+      category: "E0",
       message,
       location: contractPath,
     });
-    return finalize(2, null);
+    const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+    return finalize(e0ExitCode, null);
   }
 
   const initialContractVersion = extractContractVersion(contractSource.value);
@@ -161,10 +174,12 @@ export async function runValidateCommand(
     findings.push({
       code: "config.load-error",
       severity: "error",
+      category: "E0",
       message,
       location: configPath,
     });
-    return finalize(2, initialContractVersion);
+    const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+    return finalize(e0ExitCode, initialContractVersion);
   }
 
   const schemaSource = schemaPath
@@ -186,10 +201,12 @@ export async function runValidateCommand(
     findings.push({
       code: "contract.schema-load-error",
       severity: "error",
+      category: "E0",
       message,
       location: schemaPath,
     });
-    return finalize(2, initialContractVersion);
+    const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+    return finalize(e0ExitCode, initialContractVersion);
   }
 
   const structureResult = schema
@@ -214,11 +231,13 @@ export async function runValidateCommand(
         findings.push({
           code: "contract.schema-error",
           severity: "error",
+          category: "E0",
           message: error,
         });
       }
     }
-    return finalize(2, initialContractVersion);
+    const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+    return finalize(e0ExitCode, initialContractVersion);
   }
 
   const contract = structureResult.contract;
@@ -259,7 +278,8 @@ export async function runValidateCommand(
     for (const error of structuralDescriptorResult.errors) {
       findings.push(issueToFinding(error, "error"));
     }
-    return finalize(2, contract.version ?? initialContractVersion);
+    const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
+    return finalize(e0ExitCode, contract.version ?? initialContractVersion);
   }
 
   const summary = evaluateContractCompliance(
@@ -273,14 +293,39 @@ export async function runValidateCommand(
     printSummary(summary, textReporter);
   }
 
-  const hasErrors = violationFindings.some(
-    (finding) => finding.severity === "error",
-  );
+  // Determine exit code based on violation categories
+  let exitCode: number;
+  if (violationFindings.length === 0) {
+    exitCode = 0;
+  } else {
+    // Find the highest severity category (E2 > E1)
+    let maxCategory: ViolationCategory | null = null;
+    for (const finding of violationFindings) {
+      const category = finding.category;
+      if (category === "E2") {
+        maxCategory = "E2";
+        break; // E2 is highest, no need to continue
+      } else if (category === "E1" && (maxCategory === null || maxCategory === "E1")) {
+        maxCategory = "E1";
+      }
+    }
 
-  return finalize(
-    hasErrors ? 1 : 0,
-    contract.version ?? initialContractVersion,
-  );
+    if (maxCategory) {
+      exitCode = getExitCodeForCategory(maxCategory, exitCodeVersion);
+    } else {
+      // Fallback (should not happen, but handle gracefully)
+      exitCode = exitCodeVersion === "v2" ? 30 : 1;
+    }
+
+    // Print deprecation warning for v1
+    if (exitCodeVersion === "v1") {
+      process.stderr.write(
+        "Deprecation: default exit codes will change. Use --exit-codes v2 to opt in.\n",
+      );
+    }
+  }
+
+  return finalize(exitCode, contract.version ?? initialContractVersion);
 }
 
 async function loadJson(
@@ -341,6 +386,7 @@ function issueToFinding(
   return {
     code: issue.code,
     severity,
+    category: "E0", // Descriptor errors are E0 (artifact invalid)
     surface: issue.surfaceId,
     message: issue.message,
     location: issue.location,
@@ -372,9 +418,11 @@ function mapViolationsToFindings(
     for (const violation of report.violations) {
       const details = (violation.details ?? {}) as Record<string, unknown>;
 
+      const category = classifyViolationType(violation.type);
       const finding: JsonFinding = {
         code: codeMap[violation.type] ?? violation.type,
         severity: "error",
+        category,
         surface: violation.surfaceId,
         message: violation.message,
       };

@@ -21,6 +21,7 @@ program
     .option("--json", "Emit machine-readable JSON instead of human-readable text output")
     .option("--format <format>", "Output format (text|json)")
     .option("--out <path>", "Write output to the provided file path instead of stdout")
+    .option("--exit-codes <v1|v2>", "Exit code version (default: v1, use v2 for new contract)")
     .action(async (options) => {
     const env = process.env;
     const requestedRoot = options.root ?? options.workspaceRoot ?? env.SURFACES_ROOT;
@@ -41,6 +42,9 @@ program
         process.exitCode = 1;
         return;
     }
+    const exitCodeVersion = options.exitCodes === "v1" || options.exitCodes === "v2"
+        ? options.exitCodes
+        : undefined;
     const exitCode = await runValidateCommand({
         contractPath,
         schemaPath: options.schema,
@@ -50,6 +54,7 @@ program
         outputPath: options.out,
         configPath: requestedConfig,
         configProvided: Boolean(requestedConfig),
+        exitCodes: exitCodeVersion,
     });
     process.exitCode = exitCode;
 });
@@ -68,6 +73,7 @@ program
     .option("--no-normalize", "Disable normalization (for debugging)")
     .option("--rename-threshold <0-1>", "Rename detection threshold (default: 0.8)", parseFloat)
     .option("--policy <path>", "Optional policy path (for policy metadata in output)")
+    .option("--exit-codes <v1|v2>", "Exit code version (default: v1, use v2 for new contract)")
     .action(async (options) => {
     const env = process.env;
     const requestedRoot = options.root ?? options.workspaceRoot ?? env.SURFACES_ROOT;
@@ -88,6 +94,9 @@ program
         process.exitCode = 1;
         return;
     }
+    const exitCodeVersion = options.exitCodes === "v1" || options.exitCodes === "v2"
+        ? options.exitCodes
+        : undefined;
     const exitCode = await runDiffCommand({
         contractPath,
         schemaPath: options.schema,
@@ -100,6 +109,7 @@ program
         normalize: options.normalize !== false,
         renameThreshold: options.renameThreshold,
         policyPath: options.policy,
+        exitCodes: exitCodeVersion,
     });
     process.exitCode = exitCode;
 });
@@ -117,6 +127,7 @@ program
     .option("--format <text|json>", "Output format")
     .option("--out <path>", "Output file")
     .option("--json", "Emit machine-readable JSON instead of human-readable text output")
+    .option("--exit-codes <v1|v2>", "Exit code version (default: v1, use v2 for new contract)")
     .action(async (options) => {
     const env = process.env;
     const requestedRoot = options.root ?? env.SURFACES_ROOT;
@@ -134,6 +145,9 @@ program
         process.exitCode = 1;
         return;
     }
+    const exitCodeVersion = options.exitCodes === "v1" || options.exitCodes === "v2"
+        ? options.exitCodes
+        : undefined;
     const exitCode = await runEnforceCommand({
         mode: options.mode,
         strict: options.strict,
@@ -146,6 +160,7 @@ program
         configPath: requestedConfig,
         configProvided: Boolean(options.config),
         dryRun: options.dryRun,
+        exitCodes: exitCodeVersion,
     });
     process.exitCode = exitCode;
 });

@@ -1,3 +1,4 @@
+import { type ExitCodeVersion } from "../utils/exit-codes.js";
 type OutputFormat = "text" | "json";
 export interface DiffCommandOptions {
     contractPath?: string;
@@ -11,6 +12,7 @@ export interface DiffCommandOptions {
     normalize?: boolean;
     renameThreshold?: number;
     policyPath?: string;
+    exitCodes?: ExitCodeVersion;
 }
 export declare function runDiffCommand(options: DiffCommandOptions): Promise<number>;
 export {};

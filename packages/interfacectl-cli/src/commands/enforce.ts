@@ -19,6 +19,7 @@ import {
   generateUnifiedPatch,
   generateJsonPatch,
 } from "../utils/file-mutator.js";
+import { getExitCodeVersion, type ExitCodeVersion } from "../utils/exit-codes.js";
 
 type OutputFormat = "text" | "json";
 
@@ -34,6 +35,7 @@ export interface EnforceCommandOptions {
   configPath?: string;
   configProvided?: boolean;
   dryRun?: boolean;
+  exitCodes?: ExitCodeVersion;
 }
 
 async function writeFileWithParents(
@@ -98,6 +100,9 @@ export async function runEnforceCommand(
       : path.resolve(workspaceRoot, options.outputPath)
     : undefined;
 
+  // Determine exit code version
+  const exitCodeVersion = getExitCodeVersion({ exitCodes: options.exitCodes });
+
   // Determine mode
   let mode: EnforcementMode = options.mode ?? "fail";
   if (options.strict) {
@@ -133,10 +138,11 @@ export async function runEnforceCommand(
   if (options.policyPath) {
     const policyResult = await loadPolicy(options.policyPath, workspaceRoot);
     if (!policyResult.ok || !policyResult.policy) {
+      const e0ExitCode = exitCodeVersion === "v2" ? 10 : 2;
       if (!isJson) {
         console.error(`Failed to load policy: ${policyResult.error}`);
       }
-      return 2;
+      return e0ExitCode;
     }
     policy = policyResult.policy;
   } else {
@@ -161,6 +167,7 @@ export async function runEnforceCommand(
     configPath: options.configPath,
     configProvided: options.configProvided,
     policyPath: options.policyPath,
+    exitCodes: exitCodeVersion,
   });
 
   // Read diff output if it was written
@@ -173,8 +180,9 @@ export async function runEnforceCommand(
     await import("node:fs/promises").then((fs) => fs.unlink(tempDiffPath));
   } catch (error) {
     // If diff failed or file doesn't exist, handle gracefully
+    // E0 errors (10 in v2, 2 or 3 in v1) should be returned as-is
     if (diffResult !== 0 && diffResult !== 1) {
-      // Config or internal error
+      // Config or internal error (E0)
       return diffResult;
     }
   }
@@ -196,10 +204,19 @@ export async function runEnforceCommand(
       });
 
       if (hasViolations && failMode.exitOnAny) {
-        exitCode = 1;
+        // Violations remaining: E2 (enforce does not distinguish E1 vs E2)
+        exitCode = exitCodeVersion === "v2" ? 30 : 1;
       } else if (diffOutput.summary.totalChanges > 0 && failMode.exitOnAny) {
-        exitCode = 1;
+        // Violations remaining: E2
+        exitCode = exitCodeVersion === "v2" ? 30 : 1;
       }
+    }
+
+    // Print deprecation warning for v1 when violations exist
+    if (exitCodeVersion === "v1" && exitCode !== 0) {
+      process.stderr.write(
+        "Deprecation: default exit codes will change. Use --exit-codes v2 to opt in.\n",
+      );
     }
 
     // Create a minimal fix summary for fail mode
@@ -337,8 +354,22 @@ export async function runEnforceCommand(
   }
 
   // Determine exit code
-  // 0: clean/passed, 1: violations remaining, 2: config, 3: internal
-  const exitCode = applied.length > 0 && errors.length === 0 ? 0 : 1;
+  // 0: fixes applied successfully
+  // 30 (v2) or 1 (v1): violations remaining (E2 - enforce does not distinguish E1 vs E2)
+  let exitCode: number;
+  if (applied.length > 0 && errors.length === 0) {
+    exitCode = 0;
+  } else {
+    // Violations remaining: E2
+    exitCode = exitCodeVersion === "v2" ? 30 : 1;
+  }
+
+  // Print deprecation warning for v1 when violations exist
+  if (exitCodeVersion === "v1" && exitCode !== 0) {
+    process.stderr.write(
+      "Deprecation: default exit codes will change. Use --exit-codes v2 to opt in.\n",
+    );
+  }
 
   return finalize(exitCode, summary);
 }
