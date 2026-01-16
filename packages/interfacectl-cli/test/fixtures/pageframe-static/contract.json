@@ -8,6 +8,7 @@
       "type": "web",
       "requiredSections": ["header"],
       "allowedFonts": ["Inter"],
+      "allowedColors": ["#000000"],
       "layout": {
         "maxContentWidth": 1200,
         "pageFrame": {
