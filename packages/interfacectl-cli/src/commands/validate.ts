@@ -599,8 +599,6 @@ function mapViolationsToFindings(
           finding.severity = "warning";
           break;
         }
-        }
-
         default:
           break;
       }

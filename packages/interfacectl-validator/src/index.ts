@@ -8,6 +8,7 @@ import {
   DriftViolation,
   ContractSection,
   ContractSurface,
+  PageFrameLayoutDescriptor,
 } from "./types.js";
 import bundledSchema from "./schema/surfaces.web.contract.schema.json" with {
   type: "json",
@@ -53,6 +54,144 @@ export function validateContractStructure(
     errors: [],
     contract: contractData as InterfaceContract,
   };
+}
+
+function validateColorPolicy(
+  contract: InterfaceContract,
+  descriptor: SurfaceDescriptor,
+  violations: DriftViolation[],
+): void {
+  const colorPolicy = contract.color;
+  if (!colorPolicy) {
+    return;
+  }
+
+  // Validate raw color literals
+  if (colorPolicy.rawValues) {
+    const policy = colorPolicy.rawValues.policy;
+    const allowlist = new Set(colorPolicy.rawValues.allowlist ?? []);
+    const denylist = new Set(colorPolicy.rawValues.denylist ?? []);
+
+    for (const color of descriptor.colors) {
+      const colorValue = color.value;
+      
+      // Skip CSS variables
+      if (colorValue.startsWith("var(")) {
+        continue;
+      }
+
+      // Check if it's a raw color literal (hex, rgb, hsl)
+      const isRawLiteral = isRawColorLiteral(colorValue);
+      if (!isRawLiteral) {
+        continue;
+      }
+
+      // Check denylist first (denylist takes precedence, even when policy is "off")
+      if (denylist.has(colorValue)) {
+        violations.push({
+          surfaceId: descriptor.surfaceId,
+          type: "color-raw-value-used",
+          message: `Raw color literal "${colorValue}" is not allowed (denylist). Use design tokens instead.`,
+          details: {
+            colorValue,
+            source: color.source,
+            policy: policy ?? "off",
+            jsonPointer: "/color/rawValues",
+          },
+        });
+        continue;
+      }
+
+      // Only check allowlist and policy violations when policy is not "off"
+      if (policy !== "off") {
+        // Check allowlist
+        if (allowlist.has(colorValue)) {
+          continue; // Allowlisted, skip
+        }
+
+        // Emit violation based on policy
+        if (policy === "warn" || policy === "strict") {
+          violations.push({
+            surfaceId: descriptor.surfaceId,
+            type: "color-raw-value-used",
+            message: `Raw color literal "${colorValue}" detected. Use design tokens instead.`,
+            details: {
+              colorValue,
+              source: color.source,
+              policy,
+              jsonPointer: "/color/rawValues",
+            },
+          });
+        }
+      }
+    }
+  }
+
+  // Validate token namespaces
+  if (
+    colorPolicy.sourceOfTruth &&
+    colorPolicy.sourceOfTruth.type === "tokens" &&
+    colorPolicy.sourceOfTruth.tokenNamespaces
+  ) {
+    const allowedNamespaces = colorPolicy.sourceOfTruth.tokenNamespaces;
+    
+    for (const color of descriptor.colors) {
+      const colorValue = color.value;
+      
+      // Only check CSS variables
+      if (!colorValue.startsWith("var(")) {
+        continue;
+      }
+
+      // Extract variable name from var(--name)
+      const varMatch = colorValue.match(/var\((--[^)]+)\)/);
+      if (!varMatch) {
+        continue;
+      }
+
+      const varName = varMatch[1];
+      
+      // Check if variable name starts with any allowed namespace
+      const hasAllowedNamespace = allowedNamespaces.some((namespace) =>
+        varName.startsWith(namespace),
+      );
+
+      if (!hasAllowedNamespace) {
+        violations.push({
+          surfaceId: descriptor.surfaceId,
+          type: "color-token-namespace-violation",
+          message: `Color token "${varName}" does not start with any allowed namespace. Allowed namespaces: ${allowedNamespaces.join(", ")}.`,
+          details: {
+            tokenName: varName,
+            allowedNamespaces,
+            source: color.source,
+            jsonPointer: "/color/sourceOfTruth/tokenNamespaces",
+          },
+        });
+      }
+    }
+  }
+}
+
+function isRawColorLiteral(value: string): boolean {
+  const trimmed = value.trim().toLowerCase();
+  
+  // Hex colors (#rgb, #rrggbb, #rrggbbaa)
+  if (/^#([0-9a-f]{3}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(trimmed)) {
+    return true;
+  }
+
+  // rgb/rgba colors
+  if (/^rgba?\s*\(/.test(trimmed)) {
+    return true;
+  }
+
+  // hsl/hsla colors
+  if (/^hsla?\s*\(/.test(trimmed)) {
+    return true;
+  }
+
+  return false;
 }
 
 export function evaluateSurfaceCompliance(
@@ -120,20 +259,28 @@ export function evaluateSurfaceCompliance(
     }
   }
 
-  const allowedColors = new Set(surface.allowedColors);
-  for (const color of descriptor.colors) {
-    if (!allowedColors.has(color.value)) {
-      violations.push({
-        surfaceId: descriptor.surfaceId,
-        type: "color-not-allowed",
-        message: `Color "${color.value}" is not allowed for surface "${descriptor.surfaceId}".`,
-        details: {
-          color: color.value,
-          source: color.source,
-          allowedColors: [...allowedColors],
-        },
-      });
+  // Legacy allowedColors check (deprecated)
+  if (surface.allowedColors) {
+    const allowedColors = new Set(surface.allowedColors);
+    for (const color of descriptor.colors) {
+      if (!allowedColors.has(color.value)) {
+        violations.push({
+          surfaceId: descriptor.surfaceId,
+          type: "color-not-allowed",
+          message: `Color "${color.value}" is not allowed for surface "${descriptor.surfaceId}".`,
+          details: {
+            color: color.value,
+            source: color.source,
+            allowedColors: [...allowedColors],
+          },
+        });
+      }
     }
+  }
+
+  // New color policy validation
+  if (contract.color) {
+    validateColorPolicy(contract, descriptor, violations);
   }
 
   const reportedWidth = descriptor.layout.maxContentWidth;
@@ -223,6 +370,154 @@ export function evaluateSurfaceCompliance(
     }
   }
 
+  // Validate pageFrame layout if contract defines it
+  if (surface.layout.pageFrame && descriptor.layout.pageFrame) {
+    const pageFrameContract = surface.layout.pageFrame;
+    const pageFrameDescriptor = descriptor.layout.pageFrame;
+    const enforcement = pageFrameContract.enforcement ?? "strict";
+
+    // Check if selector is supported
+    const containerSelector = pageFrameContract.containerSelector;
+    const isSupportedSelector =
+      containerSelector === '[data-contract="page-container"]' ||
+      containerSelector === "[data-contract='page-container']" ||
+      containerSelector === '[data-contract={page-container}]';
+
+    if (!isSupportedSelector) {
+      const violation: DriftViolation = {
+        surfaceId: descriptor.surfaceId,
+        type: "layout-pageframe-selector-unsupported",
+        message: `Page frame container selector "${containerSelector}" is not supported in static analysis. Use '[data-contract="page-container"]' instead.`,
+        details: {
+          selector: containerSelector,
+          supportedSelectors: ['[data-contract="page-container"]'],
+        },
+      };
+      violations.push(violation);
+    } else {
+      // Validate container exists
+      if (
+        pageFrameDescriptor.maxWidthPx === null &&
+        pageFrameDescriptor.paddingLeftPx === null &&
+        pageFrameDescriptor.paddingRightPx === null
+      ) {
+        violations.push({
+          surfaceId: descriptor.surfaceId,
+          type: "layout-pageframe-container-not-found",
+          message: `Page container with data-contract="page-container" not found for surface "${descriptor.surfaceId}".`,
+          details: {
+            selector: containerSelector,
+            source: pageFrameDescriptor.source,
+          },
+        });
+      } else {
+        // Validate max-width
+        const expectedMaxWidth = pageFrameContract.containerMaxWidthPx;
+        const actualMaxWidth = pageFrameDescriptor.maxWidthPx;
+
+        if (actualMaxWidth === null) {
+          // Check if clamp/calc was detected
+          if (pageFrameDescriptor.maxWidthHasClampCalc) {
+            violations.push({
+              surfaceId: descriptor.surfaceId,
+              type: "layout-pageframe-non-deterministic-value",
+              message: `Page frame max-width uses non-deterministic expression (clamp/calc) for surface "${descriptor.surfaceId}". Expected ${expectedMaxWidth}px. Static analysis requires deterministic px values. Use fixed px values in inline styles or CSS rules targeting [data-contract="page-container"].`,
+              details: {
+                property: "max-width",
+                expected: expectedMaxWidth,
+                actual: null,
+                selector: containerSelector,
+                source: pageFrameDescriptor.source,
+              },
+            });
+          } else {
+            violations.push({
+              surfaceId: descriptor.surfaceId,
+              type: "layout-pageframe-unextractable-value",
+              message: `Page frame max-width could not be extracted for surface "${descriptor.surfaceId}". Expected ${expectedMaxWidth}px. Use inline styles, CSS rules targeting [data-contract="page-container"], or Tailwind bracket classes (max-w-[${expectedMaxWidth}px]).`,
+              details: {
+                property: "max-width",
+                expected: expectedMaxWidth,
+                actual: null,
+                selector: containerSelector,
+                source: pageFrameDescriptor.source,
+              },
+            });
+          }
+        } else if (actualMaxWidth !== expectedMaxWidth) {
+          violations.push({
+            surfaceId: descriptor.surfaceId,
+            type: "layout-pageframe-maxwidth-mismatch",
+            message: `Page frame max-width mismatch for surface "${descriptor.surfaceId}": expected ${expectedMaxWidth}px, found ${actualMaxWidth}px.`,
+            details: {
+              expected: expectedMaxWidth,
+              actual: actualMaxWidth,
+              selector: containerSelector,
+              source: pageFrameDescriptor.source,
+            },
+          });
+        }
+
+        // Validate padding
+        const expectedPadding = pageFrameContract.paddingXpx;
+        const actualPaddingLeft = pageFrameDescriptor.paddingLeftPx;
+        const actualPaddingRight = pageFrameDescriptor.paddingRightPx;
+
+        if (actualPaddingLeft === null || actualPaddingRight === null) {
+          // Check if clamp/calc was detected
+          if (pageFrameDescriptor.paddingHasClampCalc) {
+            violations.push({
+              surfaceId: descriptor.surfaceId,
+              type: "layout-pageframe-non-deterministic-value",
+              message: `Page frame padding uses non-deterministic expression (clamp/calc) for surface "${descriptor.surfaceId}". Expected ${expectedPadding}px. Static analysis requires deterministic px values. Use fixed px values in inline styles or CSS rules targeting [data-contract="page-container"].`,
+              details: {
+                property: "padding",
+                expected: expectedPadding,
+                actualLeft: actualPaddingLeft,
+                actualRight: actualPaddingRight,
+                selector: containerSelector,
+                source: pageFrameDescriptor.source,
+              },
+            });
+          } else {
+            violations.push({
+              surfaceId: descriptor.surfaceId,
+              type: "layout-pageframe-unextractable-value",
+              message: `Page frame padding could not be extracted for surface "${descriptor.surfaceId}". Expected ${expectedPadding}px. Static analysis requires deterministic px values. Use inline styles, CSS rules targeting [data-contract="page-container"], or Tailwind bracket classes (px-[${expectedPadding}px]).`,
+              details: {
+                property: "padding",
+                expected: expectedPadding,
+                actualLeft: actualPaddingLeft,
+                actualRight: actualPaddingRight,
+                selector: containerSelector,
+                source: pageFrameDescriptor.source,
+              },
+            });
+          }
+        } else if (
+          actualPaddingLeft !== expectedPadding ||
+          actualPaddingRight !== expectedPadding
+        ) {
+          violations.push({
+            surfaceId: descriptor.surfaceId,
+            type: "layout-pageframe-padding-mismatch",
+            message: `Page frame padding mismatch for surface "${descriptor.surfaceId}": expected ${expectedPadding}px on both sides, found left=${actualPaddingLeft}px right=${actualPaddingRight}px.`,
+            details: {
+              expected: expectedPadding,
+              actualLeft: actualPaddingLeft,
+              actualRight: actualPaddingRight,
+              selector: containerSelector,
+              source: pageFrameDescriptor.source,
+            },
+          });
+        }
+      }
+    }
+
+    // Apply enforcement mode: warn mode violations don't affect exit code
+    // This is handled at the CLI level by checking violation severity
+  }
+
   return {
     surfaceId: descriptor.surfaceId,
     violations,
@@ -287,10 +582,21 @@ function formatAjvErrors(errors: ErrorObject[] | null | undefined): string[] {
   return errors.map((error) => {
     const dataPath = error.instancePath || error.schemaPath;
     const baseMessage = error.message ?? "Validation error";
-    if (error.params && Object.keys(error.params).length > 0) {
-      return `${dataPath}: ${baseMessage} (${JSON.stringify(error.params)})`;
+    
+    // Enhance error messages for common schema issues
+    let enhancedMessage = baseMessage;
+    if (error.keyword === "additionalProperties" && error.params?.additionalProperty) {
+      const prop = error.params.additionalProperty;
+      enhancedMessage = `Additional property "${prop}" is not allowed. This may indicate a capability gap - the field is not supported by the current schema version.`;
+    } else if (error.keyword === "required" && error.params?.missingProperty) {
+      const prop = error.params.missingProperty;
+      enhancedMessage = `Required property "${prop}" is missing.`;
     }
-    return `${dataPath}: ${baseMessage}`;
+    
+    if (error.params && Object.keys(error.params).length > 0) {
+      return `${dataPath}: ${enhancedMessage} (${JSON.stringify(error.params)})`;
+    }
+    return `${dataPath}: ${enhancedMessage}`;
   });
 }
 
@@ -318,6 +624,7 @@ export type {
   SurfaceColorDescriptor,
   SurfaceMotionDescriptor,
   SurfaceLayoutDescriptor,
+  PageFrameLayoutDescriptor,
   SurfaceReport,
   DriftViolation,
   ValidationSummary,
