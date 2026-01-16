@@ -1,4 +1,11 @@
 export type SurfaceType = "web" | "cli";
+export interface PageFrameLayout {
+    containerSelector: string;
+    containerMaxWidthPx: number;
+    paddingXpx: number;
+    alignment?: "center" | "left";
+    enforcement?: "strict" | "warn";
+}
 export interface ContractSurface {
     id: string;
     displayName: string;
@@ -9,6 +16,7 @@ export interface ContractSurface {
     layout: {
         maxContentWidth: number;
         requiredContainers?: string[];
+        pageFrame?: PageFrameLayout;
     };
 }
 export interface ContractSection {
@@ -47,11 +55,21 @@ export interface SurfaceMotionDescriptor {
     timingFunction: string;
     source?: string;
 }
+export interface PageFrameLayoutDescriptor {
+    containerSelector: string;
+    maxWidthPx?: number | null;
+    paddingLeftPx?: number | null;
+    paddingRightPx?: number | null;
+    source?: string;
+    maxWidthHasClampCalc?: boolean;
+    paddingHasClampCalc?: boolean;
+}
 export interface SurfaceLayoutDescriptor {
     maxContentWidth?: number | null;
     containers?: string[];
     containerSources?: string[];
     source?: string;
+    pageFrame?: PageFrameLayoutDescriptor;
 }
 export interface SurfaceDescriptor {
     surfaceId: string;
@@ -61,7 +79,7 @@ export interface SurfaceDescriptor {
     layout: SurfaceLayoutDescriptor;
     motion: SurfaceMotionDescriptor[];
 }
-export type DriftViolationType = "unknown-surface" | "missing-section" | "unknown-section" | "font-not-allowed" | "color-not-allowed" | "layout-width-exceeded" | "layout-width-undetermined" | "layout-container-missing" | "motion-duration-not-allowed" | "motion-timing-not-allowed" | "descriptor-missing" | "descriptor-unused";
+export type DriftViolationType = "unknown-surface" | "missing-section" | "unknown-section" | "font-not-allowed" | "color-not-allowed" | "layout-width-exceeded" | "layout-width-undetermined" | "layout-container-missing" | "layout-pageframe-selector-unsupported" | "layout-pageframe-container-not-found" | "layout-pageframe-maxwidth-mismatch" | "layout-pageframe-padding-mismatch" | "layout-pageframe-non-deterministic-value" | "layout-pageframe-unextractable-value" | "motion-duration-not-allowed" | "motion-timing-not-allowed" | "descriptor-missing" | "descriptor-unused";
 export interface DriftViolation {
     surfaceId: string;
     type: DriftViolationType;

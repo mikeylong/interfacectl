@@ -9,6 +9,7 @@ import {
   type SurfaceLayoutDescriptor,
   type SurfaceMotionDescriptor,
   type SurfaceSectionDescriptor,
+  type PageFrameLayoutDescriptor,
 } from "@surfaces/interfacectl-validator";
 
 const SECTION_ATTRIBUTE_REGEX =
@@ -17,6 +18,33 @@ const SECTION_ATTRIBUTE_REGEX =
 const CONTAINER_ATTRIBUTE_REGEX =
   /data-contract-container\s*=\s*(?:"([^"]+)"|'([^']+)'|{`([^`]+)`}|{\s*["'`]([^"'`]+)["'`]\s*})/g;
 const CONTRACT_CONTAINER_TOKEN = "contract-container";
+const PAGE_CONTAINER_ATTRIBUTE_REGEX =
+  /data-contract\s*=\s*(?:"page-container"|'page-container'|{`page-container`}|{\s*["'`]page-container["'`]\s*})/g;
+// Inline style extraction
+const INLINE_STYLE_REGEX = /style\s*=\s*(?:"([^"]+)"|'([^']+)'|{`([^`]+)`}|{\s*["'`]([^"'`]+)["'`]\s*})/g;
+const INLINE_MAX_WIDTH_REGEX = /max-width\s*:\s*([0-9.]+)\s*px/gi;
+const INLINE_PADDING_LEFT_REGEX = /padding-left\s*:\s*([0-9.]+)\s*px/gi;
+const INLINE_PADDING_RIGHT_REGEX = /padding-right\s*:\s*([0-9.]+)\s*px/gi;
+const INLINE_PADDING_INLINE_REGEX = /padding-inline\s*:\s*([0-9.]+)\s*px/gi;
+// CSS rule extraction for [data-contract="page-container"]
+const CSS_SELECTOR_PAGE_CONTAINER_REGEX = /\[data-contract\s*=\s*["']page-container["']\]\s*\{([^}]+)\}/gi;
+const CSS_MAX_WIDTH_REGEX = /max-width\s*:\s*([0-9.]+)\s*px/gi;
+const CSS_PADDING_LEFT_REGEX = /padding-left\s*:\s*([0-9.]+)\s*px/gi;
+const CSS_PADDING_RIGHT_REGEX = /padding-right\s*:\s*([0-9.]+)\s*px/gi;
+const CSS_PADDING_INLINE_REGEX = /padding-inline\s*:\s*([0-9.]+)\s*px/gi;
+// Tailwind class extraction (best-effort)
+const TAILWIND_MAX_WIDTH_REGEX = /max-w-\[([0-9.]+)px\]/gi;
+const TAILWIND_PADDING_X_REGEX = /px-\[([0-9.]+)px\]/gi;
+const TAILWIND_PADDING_LEFT_REGEX = /pl-\[([0-9.]+)px\]/gi;
+const TAILWIND_PADDING_RIGHT_REGEX = /pr-\[([0-9.]+)px\]/gi;
+// Non-deterministic value detection
+const CLAMP_REGEX = /clamp\s*\(/i;
+const CALC_REGEX = /calc\s*\(/i;
+// Optional CSS custom properties (fallback)
+const PAGE_FRAME_MAX_WIDTH_VAR_REGEX =
+  /--contract-page-frame-max-width\s*:\s*([0-9.]+)\s*px/i;
+const PAGE_FRAME_PADDING_VAR_REGEX =
+  /--contract-page-frame-padding-x\s*:\s*([0-9.]+)\s*px/i;
 const COMMON_GLOBBY_IGNORES = [
   "**/node_modules/**",
   "**/.next/**",
@@ -93,11 +121,12 @@ export async function collectSurfaceDescriptors(
       continue;
     }
 
-    const descriptorResult = await extractSurfaceDescriptor(
-      options.workspaceRoot,
-      surfaceRoot,
-      surface.id,
-    );
+  const descriptorResult = await extractSurfaceDescriptor(
+    options.workspaceRoot,
+    surfaceRoot,
+    surface.id,
+    surface,
+  );
 
     structuralDescriptors.push(descriptorResult.descriptor);
     warnings.push(...descriptorResult.warnings);
@@ -123,6 +152,7 @@ async function extractSurfaceDescriptor(
   workspaceRoot: string,
   surfaceRoot: string,
   surfaceId: string,
+  surface?: InterfaceContract["surfaces"][number],
 ): Promise<{
   descriptor: SurfaceDescriptor;
   warnings: DescriptorIssue[];
@@ -165,6 +195,7 @@ async function extractSurfaceDescriptor(
     sectionFiles,
     workspaceRoot,
     fileContentCache,
+    surface,
   );
   const fonts = await extractFonts(
     surfaceRoot,
@@ -354,6 +385,7 @@ async function extractLayout(
   sectionFiles: string[],
   workspaceRoot: string,
   fileContentCache: Map<string, string>,
+  surface?: InterfaceContract["surfaces"][number],
 ): Promise<SurfaceLayoutDescriptor> {
   let maxWidth: number | null = null;
   let layoutSource: string | undefined;
@@ -385,11 +417,336 @@ async function extractLayout(
     }
   }
 
+  // Extract pageFrame layout if contract defines it
+  let pageFrame: PageFrameLayoutDescriptor | undefined;
+  if (surface?.layout.pageFrame) {
+    pageFrame = await extractPageFrameLayout(
+      cssFilePaths,
+      sectionFiles,
+      workspaceRoot,
+      fileContentCache,
+      surface.layout.pageFrame,
+    );
+  }
+
   return {
     maxContentWidth: maxWidth,
     containers: [...containers].sort(),
     containerSources: [...containerSources].sort(),
     source: layoutSource,
+    pageFrame,
+  };
+}
+
+async function extractPageFrameLayout(
+  cssFilePaths: string[],
+  sectionFiles: string[],
+  workspaceRoot: string,
+  fileContentCache: Map<string, string>,
+  pageFrameContract: InterfaceContract["surfaces"][number]["layout"]["pageFrame"],
+): Promise<PageFrameLayoutDescriptor | undefined> {
+  if (!pageFrameContract) {
+    return undefined;
+  }
+
+  const containerSelector = pageFrameContract.containerSelector;
+  
+  // Check if selector is supported (v1 only supports data-contract="page-container")
+  const isSupportedSelector =
+    containerSelector === '[data-contract="page-container"]' ||
+    containerSelector === "[data-contract='page-container']" ||
+    containerSelector === '[data-contract={page-container}]';
+
+  if (!isSupportedSelector) {
+    // Return undefined to trigger selectorUnsupported violation
+    return undefined;
+  }
+
+  // Check if page-container marker exists in source files
+  let containerFound = false;
+  let containerSource: string | undefined;
+  let containerFileContent: string | undefined;
+  for (const filePath of sectionFiles) {
+    const content = await readFileCached(filePath, fileContentCache);
+    // Reset regex state
+    PAGE_CONTAINER_ATTRIBUTE_REGEX.lastIndex = 0;
+    if (PAGE_CONTAINER_ATTRIBUTE_REGEX.test(content)) {
+      containerFound = true;
+      containerSource = path.relative(workspaceRoot, filePath);
+      containerFileContent = content;
+      break;
+    }
+  }
+
+  if (!containerFound) {
+    // Container marker not found - return partial descriptor
+    return {
+      containerSelector,
+      maxWidthPx: null,
+      paddingLeftPx: null,
+      paddingRightPx: null,
+      source: undefined,
+      maxWidthHasClampCalc: undefined,
+      paddingHasClampCalc: undefined,
+    };
+  }
+
+  let maxWidthPx: number | null = null;
+  let paddingLeftPx: number | null = null;
+  let paddingRightPx: number | null = null;
+  let extractionSource: string | undefined;
+  let maxWidthHasClampCalc = false;
+  let paddingHasClampCalc = false;
+
+  // Strategy A: Extract from inline styles on the marked element
+  if (containerFileContent) {
+    INLINE_STYLE_REGEX.lastIndex = 0;
+    let styleMatch: RegExpExecArray | null;
+    while ((styleMatch = INLINE_STYLE_REGEX.exec(containerFileContent)) !== null) {
+      const styleContent =
+        styleMatch[1] ?? styleMatch[2] ?? styleMatch[3] ?? styleMatch[4] ?? "";
+
+      // Extract max-width
+      if (maxWidthPx === null) {
+        INLINE_MAX_WIDTH_REGEX.lastIndex = 0;
+        const maxWidthMatch = INLINE_MAX_WIDTH_REGEX.exec(styleContent);
+        if (maxWidthMatch) {
+          const maxWidthValue = maxWidthMatch[0];
+          // Check if this specific max-width value uses clamp/calc
+          if (CLAMP_REGEX.test(maxWidthValue) || CALC_REGEX.test(maxWidthValue)) {
+            maxWidthHasClampCalc = true;
+          } else {
+            const value = Number.parseFloat(maxWidthMatch[1]);
+            if (Number.isFinite(value)) {
+              maxWidthPx = value;
+              extractionSource = containerSource;
+            }
+          }
+        }
+      }
+
+      // Extract padding
+      if (paddingLeftPx === null || paddingRightPx === null) {
+        INLINE_PADDING_INLINE_REGEX.lastIndex = 0;
+        const paddingInlineMatch = INLINE_PADDING_INLINE_REGEX.exec(styleContent);
+        if (paddingInlineMatch) {
+          const paddingValue = paddingInlineMatch[0];
+          // Check if this specific padding value uses clamp/calc
+          if (CLAMP_REGEX.test(paddingValue) || CALC_REGEX.test(paddingValue)) {
+            paddingHasClampCalc = true;
+          } else {
+            const value = Number.parseFloat(paddingInlineMatch[1]);
+            if (Number.isFinite(value)) {
+              paddingLeftPx = value;
+              paddingRightPx = value;
+              extractionSource = containerSource;
+            }
+          }
+        } else {
+          INLINE_PADDING_LEFT_REGEX.lastIndex = 0;
+          INLINE_PADDING_RIGHT_REGEX.lastIndex = 0;
+          const leftMatch = INLINE_PADDING_LEFT_REGEX.exec(styleContent);
+          const rightMatch = INLINE_PADDING_RIGHT_REGEX.exec(styleContent);
+          if (leftMatch && rightMatch) {
+            const leftValueStr = leftMatch[0];
+            const rightValueStr = rightMatch[0];
+            // Check if padding values use clamp/calc
+            if (
+              CLAMP_REGEX.test(leftValueStr) ||
+              CALC_REGEX.test(leftValueStr) ||
+              CLAMP_REGEX.test(rightValueStr) ||
+              CALC_REGEX.test(rightValueStr)
+            ) {
+              paddingHasClampCalc = true;
+            } else {
+              const leftValue = Number.parseFloat(leftMatch[1]);
+              const rightValue = Number.parseFloat(rightMatch[1]);
+              if (Number.isFinite(leftValue) && Number.isFinite(rightValue)) {
+                paddingLeftPx = leftValue;
+                paddingRightPx = rightValue;
+                extractionSource = containerSource;
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Strategy B: Extract from CSS rules targeting [data-contract="page-container"]
+  if (maxWidthPx === null || paddingLeftPx === null || paddingRightPx === null) {
+    for (const cssPath of cssFilePaths) {
+      const cssContent = await readFileCached(cssPath, fileContentCache);
+
+      CSS_SELECTOR_PAGE_CONTAINER_REGEX.lastIndex = 0;
+      let selectorMatch: RegExpExecArray | null;
+      while ((selectorMatch = CSS_SELECTOR_PAGE_CONTAINER_REGEX.exec(cssContent)) !== null) {
+        const ruleContent = selectorMatch[1];
+
+        // Extract max-width (check for clamp/calc in max-width declaration)
+        if (maxWidthPx === null) {
+          // First check if max-width exists (even with clamp/calc)
+          const maxWidthDeclMatch = /max-width\s*:\s*([^;]+)/i.exec(ruleContent);
+          if (maxWidthDeclMatch) {
+            const maxWidthValue = maxWidthDeclMatch[1].trim();
+            // Check if this specific max-width value uses clamp/calc
+            if (CLAMP_REGEX.test(maxWidthValue) || CALC_REGEX.test(maxWidthValue)) {
+              maxWidthHasClampCalc = true;
+            } else {
+              // Try to extract px value
+              CSS_MAX_WIDTH_REGEX.lastIndex = 0;
+              const maxWidthMatch = CSS_MAX_WIDTH_REGEX.exec(ruleContent);
+              if (maxWidthMatch) {
+                const value = Number.parseFloat(maxWidthMatch[1]);
+                if (Number.isFinite(value)) {
+                  maxWidthPx = value;
+                  extractionSource = path.relative(workspaceRoot, cssPath);
+                }
+              }
+            }
+          }
+        }
+
+        // Extract padding (check for clamp/calc in padding declarations)
+        if (paddingLeftPx === null || paddingRightPx === null) {
+          // First check if padding-inline exists (even with clamp/calc)
+          const paddingInlineDeclMatch = /padding-inline\s*:\s*([^;]+)/i.exec(ruleContent);
+          if (paddingInlineDeclMatch) {
+            const paddingValue = paddingInlineDeclMatch[1].trim();
+            // Check if this specific padding value uses clamp/calc
+            if (CLAMP_REGEX.test(paddingValue) || CALC_REGEX.test(paddingValue)) {
+              paddingHasClampCalc = true;
+            } else {
+              // Try to extract px value
+              CSS_PADDING_INLINE_REGEX.lastIndex = 0;
+              const paddingInlineMatch = CSS_PADDING_INLINE_REGEX.exec(ruleContent);
+              if (paddingInlineMatch) {
+                const value = Number.parseFloat(paddingInlineMatch[1]);
+                if (Number.isFinite(value)) {
+                  paddingLeftPx = value;
+                  paddingRightPx = value;
+                  extractionSource = path.relative(workspaceRoot, cssPath);
+                }
+              }
+            }
+          } else {
+            CSS_PADDING_LEFT_REGEX.lastIndex = 0;
+            CSS_PADDING_RIGHT_REGEX.lastIndex = 0;
+            const leftMatch = CSS_PADDING_LEFT_REGEX.exec(ruleContent);
+            const rightMatch = CSS_PADDING_RIGHT_REGEX.exec(ruleContent);
+            if (leftMatch && rightMatch) {
+              const leftValueStr = leftMatch[0];
+              const rightValueStr = rightMatch[0];
+              // Check if padding values use clamp/calc
+              if (
+                CLAMP_REGEX.test(leftValueStr) ||
+                CALC_REGEX.test(leftValueStr) ||
+                CLAMP_REGEX.test(rightValueStr) ||
+                CALC_REGEX.test(rightValueStr)
+              ) {
+                paddingHasClampCalc = true;
+              } else {
+                const leftValue = Number.parseFloat(leftMatch[1]);
+                const rightValue = Number.parseFloat(rightMatch[1]);
+                if (Number.isFinite(leftValue) && Number.isFinite(rightValue)) {
+                  paddingLeftPx = leftValue;
+                  paddingRightPx = rightValue;
+                  extractionSource = path.relative(workspaceRoot, cssPath);
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Strategy C: Extract from Tailwind bracket classes (best-effort, v1)
+  if (maxWidthPx === null || paddingLeftPx === null || paddingRightPx === null) {
+    for (const filePath of sectionFiles) {
+      const content = await readFileCached(filePath, fileContentCache);
+      
+      // Extract max-width from max-w-[NNNpx]
+      if (maxWidthPx === null) {
+        TAILWIND_MAX_WIDTH_REGEX.lastIndex = 0;
+        const maxWidthMatch = TAILWIND_MAX_WIDTH_REGEX.exec(content);
+        if (maxWidthMatch) {
+          const value = Number.parseFloat(maxWidthMatch[1]);
+          if (Number.isFinite(value)) {
+            maxWidthPx = value;
+            extractionSource = path.relative(workspaceRoot, filePath);
+          }
+        }
+      }
+
+      // Extract padding from px-[NNpx] or pl-[NNpx]/pr-[NNpx]
+      if (paddingLeftPx === null || paddingRightPx === null) {
+        TAILWIND_PADDING_X_REGEX.lastIndex = 0;
+        const paddingXMatch = TAILWIND_PADDING_X_REGEX.exec(content);
+        if (paddingXMatch) {
+          const value = Number.parseFloat(paddingXMatch[1]);
+          if (Number.isFinite(value)) {
+            paddingLeftPx = value;
+            paddingRightPx = value;
+            extractionSource = path.relative(workspaceRoot, filePath);
+          }
+        } else {
+          TAILWIND_PADDING_LEFT_REGEX.lastIndex = 0;
+          TAILWIND_PADDING_RIGHT_REGEX.lastIndex = 0;
+          const leftMatch = TAILWIND_PADDING_LEFT_REGEX.exec(content);
+          const rightMatch = TAILWIND_PADDING_RIGHT_REGEX.exec(content);
+          if (leftMatch && rightMatch) {
+            const leftValue = Number.parseFloat(leftMatch[1]);
+            const rightValue = Number.parseFloat(rightMatch[1]);
+            if (Number.isFinite(leftValue) && Number.isFinite(rightValue)) {
+              paddingLeftPx = leftValue;
+              paddingRightPx = rightValue;
+              extractionSource = path.relative(workspaceRoot, filePath);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // Optional: CSS custom properties (fallback, not required)
+  if (maxWidthPx === null || paddingLeftPx === null || paddingRightPx === null) {
+    for (const cssPath of cssFilePaths) {
+      const cssContent = await readFileCached(cssPath, fileContentCache);
+      
+      if (maxWidthPx === null) {
+        const varMatch = cssContent.match(PAGE_FRAME_MAX_WIDTH_VAR_REGEX);
+        if (varMatch) {
+          const value = Number.parseFloat(varMatch[1]);
+          if (Number.isFinite(value)) {
+            maxWidthPx = value;
+            extractionSource = path.relative(workspaceRoot, cssPath);
+          }
+        }
+      }
+
+      if (paddingLeftPx === null || paddingRightPx === null) {
+        const paddingXMatch = cssContent.match(PAGE_FRAME_PADDING_VAR_REGEX);
+        if (paddingXMatch) {
+          const value = Number.parseFloat(paddingXMatch[1]);
+          if (Number.isFinite(value)) {
+            paddingLeftPx = value;
+            paddingRightPx = value;
+            extractionSource = path.relative(workspaceRoot, cssPath);
+          }
+        }
+      }
+    }
+  }
+
+  return {
+    containerSelector,
+    maxWidthPx,
+    paddingLeftPx,
+    paddingRightPx,
+    source: extractionSource ?? containerSource,
+    maxWidthHasClampCalc: maxWidthHasClampCalc || undefined,
+    paddingHasClampCalc: paddingHasClampCalc || undefined,
   };
 }
 

@@ -1,15 +1,24 @@
 export type SurfaceType = "web" | "cli";
 
+export interface PageFrameLayout {
+  containerSelector: string;
+  containerMaxWidthPx: number;
+  paddingXpx: number;
+  alignment?: "center" | "left";
+  enforcement?: "strict" | "warn";
+}
+
 export interface ContractSurface {
   id: string;
   displayName: string;
   type: SurfaceType;
   requiredSections: string[];
   allowedFonts: string[];
-  allowedColors: string[];
+  allowedColors?: string[]; // Deprecated: use color.sourceOfTruth and color.rawValues
   layout: {
     maxContentWidth: number;
     requiredContainers?: string[];
+    pageFrame?: PageFrameLayout;
   };
 }
 
@@ -26,6 +35,44 @@ export interface ContractConstraints {
   };
 }
 
+export interface ColorSourceOfTruth {
+  type: "tokens" | "none";
+  tokenNamespaces?: string[];
+}
+
+export interface ColorRawValues {
+  policy: "off" | "warn" | "strict";
+  allowlist?: string[];
+  denylist?: string[];
+}
+
+export interface ColorRoleEnforcement {
+  enforcement: "off" | "warn" | "strict";
+}
+
+export interface ColorSemantics {
+  roles?: {
+    accent?: ColorRoleEnforcement;
+    text?: ColorRoleEnforcement;
+    background?: ColorRoleEnforcement;
+    border?: ColorRoleEnforcement;
+  };
+}
+
+export interface ColorConsistency {
+  acrossSurfaces?: {
+    enforcement: "off" | "warn" | "strict";
+    signals?: ("token-name" | "css-var-name" | "class-fragment")[];
+  };
+}
+
+export interface ColorPolicy {
+  sourceOfTruth?: ColorSourceOfTruth;
+  rawValues?: ColorRawValues;
+  semantics?: ColorSemantics;
+  consistency?: ColorConsistency;
+}
+
 export interface InterfaceContract {
   contractId: string;
   version: string;
@@ -33,6 +80,7 @@ export interface InterfaceContract {
   surfaces: ContractSurface[];
   sections: ContractSection[];
   constraints: ContractConstraints;
+  color?: ColorPolicy;
 }
 
 export interface SurfaceSectionDescriptor {
@@ -56,11 +104,22 @@ export interface SurfaceMotionDescriptor {
   source?: string;
 }
 
+export interface PageFrameLayoutDescriptor {
+  containerSelector: string;
+  maxWidthPx?: number | null;
+  paddingLeftPx?: number | null;
+  paddingRightPx?: number | null;
+  source?: string;
+  maxWidthHasClampCalc?: boolean;
+  paddingHasClampCalc?: boolean;
+}
+
 export interface SurfaceLayoutDescriptor {
   maxContentWidth?: number | null;
   containers?: string[];
   containerSources?: string[];
   source?: string;
+  pageFrame?: PageFrameLayoutDescriptor;
 }
 
 export interface SurfaceDescriptor {
@@ -81,10 +140,18 @@ export type DriftViolationType =
   | "layout-width-exceeded"
   | "layout-width-undetermined"
   | "layout-container-missing"
+  | "layout-pageframe-selector-unsupported"
+  | "layout-pageframe-container-not-found"
+  | "layout-pageframe-maxwidth-mismatch"
+  | "layout-pageframe-padding-mismatch"
+  | "layout-pageframe-non-deterministic-value"
+  | "layout-pageframe-unextractable-value"
   | "motion-duration-not-allowed"
   | "motion-timing-not-allowed"
   | "descriptor-missing"
-  | "descriptor-unused";
+  | "descriptor-unused"
+  | "color-raw-value-used"
+  | "color-token-namespace-violation";
 
 export interface DriftViolation {
   surfaceId: string;

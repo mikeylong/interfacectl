@@ -119,6 +119,9 @@
                 "minLength": 1
               },
               "uniqueItems": true
+            },
+            "pageFrame": {
+              "$ref": "#/$defs/pageFrame"
             }
           }
         }
@@ -181,6 +184,39 @@
               "uniqueItems": true
             }
           }
+        }
+      }
+    },
+    "pageFrame": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "containerSelector",
+        "containerMaxWidthPx",
+        "paddingXpx"
+      ],
+      "properties": {
+        "containerSelector": {
+          "type": "string",
+          "minLength": 1
+        },
+        "containerMaxWidthPx": {
+          "type": "number",
+          "minimum": 0
+        },
+        "paddingXpx": {
+          "type": "number",
+          "minimum": 0
+        },
+        "alignment": {
+          "type": "string",
+          "enum": ["center", "left"],
+          "default": "center"
+        },
+        "enforcement": {
+          "type": "string",
+          "enum": ["strict", "warn"],
+          "default": "strict"
         }
       }
     }
