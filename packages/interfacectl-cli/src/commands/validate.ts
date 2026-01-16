@@ -220,16 +220,24 @@ export async function runValidateCommand(
   if (!structureResult.ok || !structureResult.contract) {
     if (!isJson) {
       printHeader(
-        pc.red("✖ Contract structure validation failed"),
+        pc.red("✖ Contract schema validation failed (capability gap)"),
         textReporter,
+      );
+      textReporter.error(
+        pc.dim(
+          "Schema validation errors indicate the contract structure is not supported by this version of interfacectl.",
+        ),
       );
       for (const error of structureResult.errors) {
         textReporter.error(pc.red(`  • ${error}`));
       }
     } else {
       for (const error of structureResult.errors) {
+        // Check if this is an additionalProperties error (capability gap)
+        const isCapabilityGap = error.includes("Additional property") || 
+                                error.includes("is not allowed");
         findings.push({
-          code: "contract.schema-error",
+          code: isCapabilityGap ? "contract.schema-unsupported-field" : "contract.schema-error",
           severity: "error",
           category: "E0",
           message: error,
@@ -241,6 +249,29 @@ export async function runValidateCommand(
   }
 
   const contract = structureResult.contract;
+
+  // Check for deprecated allowedColors fields
+  for (let i = 0; i < contract.surfaces.length; i++) {
+    const surface = contract.surfaces[i];
+    if (surface.allowedColors !== undefined) {
+      const finding: JsonFinding = {
+        code: "contract.deprecated-field",
+        severity: "warning",
+        category: "E0",
+        message: `allowedColors is deprecated. Migrate to color.sourceOfTruth + color.rawValues policy.`,
+        location: `/surfaces/${i}/allowedColors`,
+      };
+      findings.push(finding);
+      if (!isJson) {
+        textReporter.warn(
+          pc.yellow(
+            `  • Surface "${surface.id}": allowedColors is deprecated (use color.sourceOfTruth + color.rawValues)`,
+          ),
+        );
+      }
+    }
+  }
+
 
   const surfaceFilters = new Set(
     (options.surfaceFilters ?? []).map((value) => value.trim()),
@@ -292,29 +323,34 @@ export async function runValidateCommand(
   if (!isJson) {
     printSummary(summary, textReporter);
   }
-
   // Determine exit code based on violation categories
   let exitCode: number;
   if (violationFindings.length === 0) {
     exitCode = 0;
   } else {
-    // Find the highest severity category (E2 > E1)
-    let maxCategory: ViolationCategory | null = null;
-    for (const finding of violationFindings) {
-      const category = finding.category;
-      if (category === "E2") {
-        maxCategory = "E2";
-        break; // E2 is highest, no need to continue
-      } else if (category === "E1" && (maxCategory === null || maxCategory === "E1")) {
-        maxCategory = "E1";
-      }
-    }
-
-    if (maxCategory) {
-      exitCode = getExitCodeForCategory(maxCategory, exitCodeVersion);
+    // Filter to only error-level findings for exit code determination
+    const errorFindings = violationFindings.filter((f) => f.severity === "error");
+    if (errorFindings.length === 0) {
+      exitCode = 0; // Only warnings, don't fail
     } else {
-      // Fallback (should not happen, but handle gracefully)
-      exitCode = exitCodeVersion === "v2" ? 30 : 1;
+      // Find the highest severity category (E2 > E1)
+      let maxCategory: ViolationCategory | null = null;
+      for (const finding of errorFindings) {
+        const category = finding.category;
+        if (category === "E2") {
+          maxCategory = "E2";
+          break; // E2 is highest, no need to continue
+        } else if (category === "E1" && (maxCategory === null || maxCategory === "E1")) {
+          maxCategory = "E1";
+        }
+      }
+
+      if (maxCategory) {
+        exitCode = getExitCodeForCategory(maxCategory, exitCodeVersion);
+      } else {
+        // Fallback (should not happen, but handle gracefully)
+        exitCode = exitCodeVersion === "v2" ? 30 : 1;
+      }
     }
 
     // Print deprecation warning for v1
@@ -410,8 +446,16 @@ function mapViolationsToFindings(
     "layout-width-exceeded": "layout.width-exceeded",
     "layout-width-undetermined": "layout.width-undetermined",
     "layout-container-missing": "layout.container-missing",
+    "layout-pageframe-container-not-found": "layout.pageframe.container-not-found",
+    "layout-pageframe-maxwidth-mismatch": "layout.pageframe.maxwidth-mismatch",
+    "layout-pageframe-padding-mismatch": "layout.pageframe.padding-mismatch",
+    "layout-pageframe-selector-unsupported": "layout.pageframe.selector-unsupported",
+    "layout-pageframe-non-deterministic-value": "layout.pageframe.non-deterministic-value",
+    "layout-pageframe-unextractable-value": "layout.pageframe.unextractable-value",
     "motion-duration-not-allowed": "motion.duration",
     "motion-timing-not-allowed": "motion.timing",
+    "color-raw-value-used": "color.raw-value.used",
+    "color-token-namespace-violation": "color.token.namespace.violation",
   };
 
   for (const report of summary.surfaceReports) {
@@ -473,6 +517,45 @@ function mapViolationsToFindings(
             details.missingContainers ?? details.containerSources;
           break;
         }
+        case "layout-pageframe-selector-unsupported": {
+          finding.expected = details.supportedSelectors;
+          finding.found = details.selector;
+          break;
+        }
+        case "layout-pageframe-container-not-found": {
+          finding.expected = details.selector;
+          finding.found = null;
+          break;
+        }
+        case "layout-pageframe-maxwidth-mismatch": {
+          finding.expected = details.expected;
+          finding.found = details.actual;
+          break;
+        }
+        case "layout-pageframe-padding-mismatch": {
+          finding.expected = details.expected;
+          finding.found = {
+            left: details.actualLeft,
+            right: details.actualRight,
+          };
+          break;
+        }
+        case "layout-pageframe-non-deterministic-value": {
+          finding.expected = details.expected;
+          finding.found = details.actual ?? {
+            left: details.actualLeft,
+            right: details.actualRight,
+          };
+          break;
+        }
+        case "layout-pageframe-unextractable-value": {
+          finding.expected = details.expected;
+          finding.found = details.actual ?? {
+            left: details.actualLeft,
+            right: details.actualRight,
+          };
+          break;
+        }
         case "motion-duration-not-allowed": {
           finding.expected = details.allowedDurations;
           finding.found = details.durationMs;
@@ -498,6 +581,26 @@ function mapViolationsToFindings(
           finding.found = violation.surfaceId;
           break;
         }
+        case "color-raw-value-used": {
+          finding.expected = details.allowedValues;
+          finding.found = details.colorValue;
+          // Set severity based on policy: "warn" -> warning, "strict" -> error
+          if (details.policy === "warn") {
+            finding.severity = "warning";
+          } else if (details.policy === "strict") {
+            finding.severity = "error";
+          }
+          break;
+        }
+        case "color-token-namespace-violation": {
+          finding.expected = details.allowedNamespaces;
+          finding.found = details.tokenName;
+          // Token namespace violations are warnings by default
+          finding.severity = "warning";
+          break;
+        }
+        }
+
         default:
           break;
       }
@@ -614,7 +717,10 @@ function printSummary(
     return;
   }
 
-  printHeader(pc.red("✖ Contract violations detected"), output);
+  printHeader(pc.red("✖ Surface compliance violations detected"), output);
+  output.log(
+    pc.dim("Compliance violations indicate surfaces do not match the contract requirements."),
+  );
 
   for (const report of summary.surfaceReports) {
     if (report.violations.length === 0) {

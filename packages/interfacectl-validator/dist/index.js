@@ -170,6 +170,148 @@ export function evaluateSurfaceCompliance(contract, descriptor) {
             });
         }
     }
+    // Validate pageFrame layout if contract defines it
+    if (surface.layout.pageFrame && descriptor.layout.pageFrame) {
+        const pageFrameContract = surface.layout.pageFrame;
+        const pageFrameDescriptor = descriptor.layout.pageFrame;
+        const enforcement = pageFrameContract.enforcement ?? "strict";
+        // Check if selector is supported
+        const containerSelector = pageFrameContract.containerSelector;
+        const isSupportedSelector = containerSelector === '[data-contract="page-container"]' ||
+            containerSelector === "[data-contract='page-container']" ||
+            containerSelector === '[data-contract={page-container}]';
+        if (!isSupportedSelector) {
+            const violation = {
+                surfaceId: descriptor.surfaceId,
+                type: "layout-pageframe-selector-unsupported",
+                message: `Page frame container selector "${containerSelector}" is not supported in static analysis. Use '[data-contract="page-container"]' instead.`,
+                details: {
+                    selector: containerSelector,
+                    supportedSelectors: ['[data-contract="page-container"]'],
+                },
+            };
+            violations.push(violation);
+        }
+        else {
+            // Validate container exists
+            if (pageFrameDescriptor.maxWidthPx === null &&
+                pageFrameDescriptor.paddingLeftPx === null &&
+                pageFrameDescriptor.paddingRightPx === null) {
+                violations.push({
+                    surfaceId: descriptor.surfaceId,
+                    type: "layout-pageframe-container-not-found",
+                    message: `Page container with data-contract="page-container" not found for surface "${descriptor.surfaceId}".`,
+                    details: {
+                        selector: containerSelector,
+                        source: pageFrameDescriptor.source,
+                    },
+                });
+            }
+            else {
+                // Validate max-width
+                const expectedMaxWidth = pageFrameContract.containerMaxWidthPx;
+                const actualMaxWidth = pageFrameDescriptor.maxWidthPx;
+                if (actualMaxWidth === null) {
+                    // Check if clamp/calc was detected
+                    if (pageFrameDescriptor.maxWidthHasClampCalc) {
+                        violations.push({
+                            surfaceId: descriptor.surfaceId,
+                            type: "layout-pageframe-non-deterministic-value",
+                            message: `Page frame max-width uses non-deterministic expression (clamp/calc) for surface "${descriptor.surfaceId}". Expected ${expectedMaxWidth}px. Static analysis requires deterministic px values. Use fixed px values in inline styles or CSS rules targeting [data-contract="page-container"].`,
+                            details: {
+                                property: "max-width",
+                                expected: expectedMaxWidth,
+                                actual: null,
+                                selector: containerSelector,
+                                source: pageFrameDescriptor.source,
+                            },
+                        });
+                    }
+                    else {
+                        violations.push({
+                            surfaceId: descriptor.surfaceId,
+                            type: "layout-pageframe-unextractable-value",
+                            message: `Page frame max-width could not be extracted for surface "${descriptor.surfaceId}". Expected ${expectedMaxWidth}px. Use inline styles, CSS rules targeting [data-contract="page-container"], or Tailwind bracket classes (max-w-[${expectedMaxWidth}px]).`,
+                            details: {
+                                property: "max-width",
+                                expected: expectedMaxWidth,
+                                actual: null,
+                                selector: containerSelector,
+                                source: pageFrameDescriptor.source,
+                            },
+                        });
+                    }
+                }
+                else if (actualMaxWidth !== expectedMaxWidth) {
+                    violations.push({
+                        surfaceId: descriptor.surfaceId,
+                        type: "layout-pageframe-maxwidth-mismatch",
+                        message: `Page frame max-width mismatch for surface "${descriptor.surfaceId}": expected ${expectedMaxWidth}px, found ${actualMaxWidth}px.`,
+                        details: {
+                            expected: expectedMaxWidth,
+                            actual: actualMaxWidth,
+                            selector: containerSelector,
+                            source: pageFrameDescriptor.source,
+                        },
+                    });
+                }
+                // Validate padding
+                const expectedPadding = pageFrameContract.paddingXpx;
+                const actualPaddingLeft = pageFrameDescriptor.paddingLeftPx;
+                const actualPaddingRight = pageFrameDescriptor.paddingRightPx;
+                if (actualPaddingLeft === null || actualPaddingRight === null) {
+                    // Check if clamp/calc was detected
+                    if (pageFrameDescriptor.paddingHasClampCalc) {
+                        violations.push({
+                            surfaceId: descriptor.surfaceId,
+                            type: "layout-pageframe-non-deterministic-value",
+                            message: `Page frame padding uses non-deterministic expression (clamp/calc) for surface "${descriptor.surfaceId}". Expected ${expectedPadding}px. Static analysis requires deterministic px values. Use fixed px values in inline styles or CSS rules targeting [data-contract="page-container"].`,
+                            details: {
+                                property: "padding",
+                                expected: expectedPadding,
+                                actualLeft: actualPaddingLeft,
+                                actualRight: actualPaddingRight,
+                                selector: containerSelector,
+                                source: pageFrameDescriptor.source,
+                            },
+                        });
+                    }
+                    else {
+                        violations.push({
+                            surfaceId: descriptor.surfaceId,
+                            type: "layout-pageframe-unextractable-value",
+                            message: `Page frame padding could not be extracted for surface "${descriptor.surfaceId}". Expected ${expectedPadding}px. Static analysis requires deterministic px values. Use inline styles, CSS rules targeting [data-contract="page-container"], or Tailwind bracket classes (px-[${expectedPadding}px]).`,
+                            details: {
+                                property: "padding",
+                                expected: expectedPadding,
+                                actualLeft: actualPaddingLeft,
+                                actualRight: actualPaddingRight,
+                                selector: containerSelector,
+                                source: pageFrameDescriptor.source,
+                            },
+                        });
+                    }
+                }
+                else if (actualPaddingLeft !== expectedPadding ||
+                    actualPaddingRight !== expectedPadding) {
+                    violations.push({
+                        surfaceId: descriptor.surfaceId,
+                        type: "layout-pageframe-padding-mismatch",
+                        message: `Page frame padding mismatch for surface "${descriptor.surfaceId}": expected ${expectedPadding}px on both sides, found left=${actualPaddingLeft}px right=${actualPaddingRight}px.`,
+                        details: {
+                            expected: expectedPadding,
+                            actualLeft: actualPaddingLeft,
+                            actualRight: actualPaddingRight,
+                            selector: containerSelector,
+                            source: pageFrameDescriptor.source,
+                        },
+                    });
+                }
+            }
+        }
+        // Apply enforcement mode: warn mode violations don't affect exit code
+        // This is handled at the CLI level by checking violation severity
+    }
     return {
         surfaceId: descriptor.surfaceId,
         violations,
@@ -221,10 +363,20 @@ function formatAjvErrors(errors) {
     return errors.map((error) => {
         const dataPath = error.instancePath || error.schemaPath;
         const baseMessage = error.message ?? "Validation error";
-        if (error.params && Object.keys(error.params).length > 0) {
-            return `${dataPath}: ${baseMessage} (${JSON.stringify(error.params)})`;
+        // Enhance error messages for common schema issues
+        let enhancedMessage = baseMessage;
+        if (error.keyword === "additionalProperties" && error.params?.additionalProperty) {
+            const prop = error.params.additionalProperty;
+            enhancedMessage = `Additional property "${prop}" is not allowed. This may indicate a capability gap - the field is not supported by the current schema version.`;
         }
-        return `${dataPath}: ${baseMessage}`;
+        else if (error.keyword === "required" && error.params?.missingProperty) {
+            const prop = error.params.missingProperty;
+            enhancedMessage = `Required property "${prop}" is missing.`;
+        }
+        if (error.params && Object.keys(error.params).length > 0) {
+            return `${dataPath}: ${enhancedMessage} (${JSON.stringify(error.params)})`;
+        }
+        return `${dataPath}: ${enhancedMessage}`;
     });
 }
 function buildSectionIndex(sections) {

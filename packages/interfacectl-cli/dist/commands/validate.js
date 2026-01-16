@@ -126,15 +126,19 @@ export async function runValidateCommand(options) {
         };
     if (!structureResult.ok || !structureResult.contract) {
         if (!isJson) {
-            printHeader(pc.red("✖ Contract structure validation failed"), textReporter);
+            printHeader(pc.red("✖ Contract schema validation failed (capability gap)"), textReporter);
+            textReporter.error(pc.dim("Schema validation errors indicate the contract structure is not supported by this version of interfacectl."));
             for (const error of structureResult.errors) {
                 textReporter.error(pc.red(`  • ${error}`));
             }
         }
         else {
             for (const error of structureResult.errors) {
+                // Check if this is an additionalProperties error (capability gap)
+                const isCapabilityGap = error.includes("Additional property") ||
+                    error.includes("is not allowed");
                 findings.push({
-                    code: "contract.schema-error",
+                    code: isCapabilityGap ? "contract.schema-unsupported-field" : "contract.schema-error",
                     severity: "error",
                     category: "E0",
                     message: error,
@@ -272,6 +276,12 @@ function mapViolationsToFindings(summary) {
         "layout-width-exceeded": "layout.width-exceeded",
         "layout-width-undetermined": "layout.width-undetermined",
         "layout-container-missing": "layout.container-missing",
+        "layout-pageframe-container-not-found": "layout.pageframe.container-not-found",
+        "layout-pageframe-maxwidth-mismatch": "layout.pageframe.maxwidth-mismatch",
+        "layout-pageframe-padding-mismatch": "layout.pageframe.padding-mismatch",
+        "layout-pageframe-selector-unsupported": "layout.pageframe.selector-unsupported",
+        "layout-pageframe-non-deterministic-value": "layout.pageframe.non-deterministic-value",
+        "layout-pageframe-unextractable-value": "layout.pageframe.unextractable-value",
         "motion-duration-not-allowed": "motion.duration",
         "motion-timing-not-allowed": "motion.timing",
     };
@@ -329,6 +339,45 @@ function mapViolationsToFindings(summary) {
                         details.requiredContainers ?? details.requiredContainer;
                     finding.found =
                         details.missingContainers ?? details.containerSources;
+                    break;
+                }
+                case "layout-pageframe-selector-unsupported": {
+                    finding.expected = details.supportedSelectors;
+                    finding.found = details.selector;
+                    break;
+                }
+                case "layout-pageframe-container-not-found": {
+                    finding.expected = details.selector;
+                    finding.found = null;
+                    break;
+                }
+                case "layout-pageframe-maxwidth-mismatch": {
+                    finding.expected = details.expected;
+                    finding.found = details.actual;
+                    break;
+                }
+                case "layout-pageframe-padding-mismatch": {
+                    finding.expected = details.expected;
+                    finding.found = {
+                        left: details.actualLeft,
+                        right: details.actualRight,
+                    };
+                    break;
+                }
+                case "layout-pageframe-non-deterministic-value": {
+                    finding.expected = details.expected;
+                    finding.found = details.actual ?? {
+                        left: details.actualLeft,
+                        right: details.actualRight,
+                    };
+                    break;
+                }
+                case "layout-pageframe-unextractable-value": {
+                    finding.expected = details.expected;
+                    finding.found = details.actual ?? {
+                        left: details.actualLeft,
+                        right: details.actualRight,
+                    };
                     break;
                 }
                 case "motion-duration-not-allowed": {
@@ -442,7 +491,8 @@ function printSummary(summary, output) {
         }
         return;
     }
-    printHeader(pc.red("✖ Contract violations detected"), output);
+    printHeader(pc.red("✖ Surface compliance violations detected"), output);
+    output.log(pc.dim("Compliance violations indicate surfaces do not match the contract requirements."));
     for (const report of summary.surfaceReports) {
         if (report.violations.length === 0) {
             output.log(pc.green(`  • ${report.surfaceId}: OK`));
